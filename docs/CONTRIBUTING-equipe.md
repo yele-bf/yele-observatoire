@@ -8,7 +8,8 @@
 > reste dans `docs/items-v11.json` mais **n'est plus lue par la CI**.
 > Ce document fait foi pour les 4 dépôts
 > de l'organisation : `yele-bf/mobilefront` (app Flutter),
-> `yele-bf/mobiletest` (backend Go), `yele-bf/New_web` (dashboard web),
+> `yele-bf/mobiletest` (backend Go), `yele-bf/yele-observatoire` (dashboard web,
+> ex-`New_web` — renommé le 01.11.2026, l’ancienne URL GitHub redirige),
 > `yele-bf/AI_yele` (service IA FastAPI).
 
 ---
@@ -60,7 +61,7 @@
       `docs/registre-revisions.md`) et **`build`**
       (`.github/workflows/yele-build.yml`) : `flutter analyze` + `flutter test`
       (mobilefront), `go build/vet/test` (mobiletest), syntaxe JS et ressources
-      de `index.html` (New_web), syntaxe Python et point d'entrée du service
+      de `index.html` (yele-observatoire), syntaxe Python et point d'entrée du service
       (AI_yele).
 - [x] `yele-build` tourne aussi sur **push vers `main`** : le commit fusionné
       est recontrôlé, une régression arrivée par un merge reste donc visible.

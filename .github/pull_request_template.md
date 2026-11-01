@@ -18,7 +18,7 @@ Titre de la PR = même format que le commit : `<type>(<SOUS-ID>): <descriptif>`
 
 ## Dépôts impactés
 
-- [ ] `mobilefront`   - [ ] `mobiletest`   - [ ] `New_web`   - [ ] `AI_yele`
+- [ ] `mobilefront`   - [ ] `mobiletest`   - [ ] `yele-observatoire`   - [ ] `AI_yele`
 
 ## Validation (support imposé par le classeur)
 

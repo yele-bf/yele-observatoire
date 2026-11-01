@@ -248,6 +248,15 @@ Merci de conserver cette contrainte.
 À définir avant l'ouverture publique du dépôt.
 
 
-####################################################
-la page est deja hebergee et accessible sur https://djamilagacko.github.io/New_web/
-#######################################################
+## Publication
+
+Le dashboard est publié par GitHub Pages (branche `main`, dossier racine) à
+l'adresse :
+
+**https://yele-bf.github.io/yele-observatoire/**
+
+Le dépôt s'appelait `New_web` jusqu'au 01.11.2026 : l'ancienne URL GitHub
+redirige, mais l'adresse publique est celle ci-dessus. L'adresse
+`djamilagacko.github.io/New_web` correspond à un déploiement personnel
+antérieur, dont le backend n'est plus en service ; elle ne sert pas la version
+de l'organisation.
