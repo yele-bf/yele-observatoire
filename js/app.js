@@ -142,6 +142,10 @@ const App = (() => {
   // carte, graphiques Chart.js déjà construits).
   function initTheme() {
     const btn = document.getElementById('theme-toggle');
+    // Garde défensive : si le bouton est absent du fichier index.html
+    // (rétrocompatibilité), l'application doit continuer de fonctionner sans
+    // bascule de thème — et non planter à init() (cf. incident du 03/11).
+    if (!btn) return;
     btn.addEventListener('click', () => {
       const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
       document.documentElement.setAttribute('data-theme', next);
@@ -155,6 +159,7 @@ const App = (() => {
   }
   function syncThemeTitle() {
     const btn = document.getElementById('theme-toggle');
+    if (!btn) return;
     const dark = document.documentElement.getAttribute('data-theme') === 'dark';
     btn.title = dark ? 'Passer en thème clair' : 'Passer en thème sombre';
   }

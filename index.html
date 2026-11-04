@@ -5,10 +5,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Yélé</title>
   <link rel="icon" type="image/png" href="assets/favicon.png">
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <link rel="stylesheet" href="assets/vendor/leaflet.css"/>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/style.css?v=7">
+  <script>
+    // Thème appliqué AVANT le premier rendu : évite le flash de mauvaise
+    // couleur au chargement. Priorité : choix mémorisé → préférence système.
+    (function () {
+      var t = null;
+      try { t = localStorage.getItem('yele-theme'); } catch (e) {}
+      if (t !== 'dark' && t !== 'light') {
+        t = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      }
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
 </head>
 <body>
 
@@ -27,6 +39,7 @@
     <button class="topnav-item" data-view="operators">Opérateurs</button>
     <button class="topnav-item" data-view="stats">Statistiques</button>
     <button class="topnav-item" data-view="history">Historique des tests</button>
+    <button class="topnav-item" data-view="forecast">Prévision</button>
     <button class="topnav-item" data-view="ai">Analyse IA</button>
   </nav>
 
@@ -36,7 +49,14 @@
       <input type="text" id="search-input" placeholder="Rechercher une adresse, une ville…" autocomplete="off">
       <div class="search-results" id="search-results"></div>
     </div>
-    
+
+    <!-- Bascule thème clair / sombre : l'état (attribut data-theme sur <html>)
+         est posé AVANT le premier rendu par le script inline du <head>, puis
+         commuté ici. L'icône montre ce qu'on obtient en cliquant. -->
+    <button class="theme-toggle" id="theme-toggle" type="button" title="Passer en thème sombre" aria-label="Basculer entre thème clair et sombre">
+      <svg class="ico-moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      <svg class="ico-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+    </button>
   </div>
 </header>
 
@@ -53,50 +73,72 @@
 
     <div class="panel-content" id="panel-content">
     <div class="panel-block">
-      <div class="panel-label">Usage</div>
-      <div class="usage-tabs" id="usage-tabs">
-        <button class="usage-tab active" data-usage="debit">
-          <svg viewBox="0 0 24 24"><path d="M12 2v10"/><path d="M5 9l7-7 7 7"/><path d="M5 22h14"/><path d="M5 17h14"/></svg>
-          <span>Speedtest<small>Débit &amp; latence</small></span>
-        </button>
-        <button class="usage-tab" data-usage="streaming">
-          <svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="14" rx="2"/><polygon points="10 8 16 11 10 14 10 8"/></svg>
-          <span>Streaming vidéo<small>Fluidité &amp; résolution</small></span>
-        </button>
-        <button class="usage-tab" data-usage="browsing">
-          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-          <span>Navigation web<small>Temps de chargement</small></span>
-        </button>
+      <div class="panel-label"><span class="panel-ico">📡</span>Réseau</div>
+      <div class="toggle-group" id="net-type">
+        <button class="toggle active" data-net="mobile">Mobile</button>
+        <button class="toggle" data-net="fixe">Fixe</button>
+      </div>
+      <select class="period-select operator-select" id="operator-select">
+        <option value="">Choisir un opérateur</option>
+      </select>
+      <div id="mobile-only">
+        <div class="panel-label" style="margin-top:10px"><span class="panel-ico">📶</span>Technologie</div>
+        <div class="tech-chips" id="tech-chips">
+          <button class="chip active" data-tech="">Toutes</button>
+        </div>
       </div>
     </div>
 
-    <div class="panel-block">
-      <div class="panel-label">Opérateurs</div>
-      <div class="operator-chips" id="operator-chips">
-        <button class="chip active" data-operator="">Tous</button>
+    <div class="panel-block" id="maptype-block">
+      <div class="panel-label"><span class="panel-ico">🗺️</span>Carte <small>(qualité)</small></div>
+      <div class="toggle-group maptype-group" id="map-type">
+        <button class="toggle active" data-mt="global">Global</button>
+        <button class="toggle" data-mt="dl">Download</button>
+        <button class="toggle" data-mt="ul">Upload</button>
+        <button class="toggle" data-mt="ping">Latence</button>
+        <button class="toggle" data-mt="streaming">Streaming</button>
+        <button class="toggle" data-mt="browsing">Navigation</button>
       </div>
+      <!-- Couverture SÉPARÉE des cartes de qualité (demande) : elle répond
+           « où capte-t-on quoi ? », pas « c'est bien ou pas ? » (§4 doc). -->
+      <div id="coverage-only">
+        <div class="panel-label" style="margin-top:10px"><span class="panel-ico">📡</span>Couverture</div>
+        <div class="toggle-group maptype-group" id="coverage-group">
+          <button class="toggle" data-mt="coverage" id="mt-coverage">Carte de couverture</button>
+        </div>
+      </div>
+      <div class="metric-hint" id="maptype-hint">La couleur montre la qualité de l'indicateur choisi.</div>
     </div>
 
     <div class="panel-block">
-      <div class="panel-label">Technologie</div>
-      <div class="tech-chips" id="tech-chips">
-        <button class="chip active" data-tech="">Toutes</button>
-      </div>
+      <div class="panel-label"><span class="panel-ico">📍</span>Lieu <small>(ville)</small></div>
+      <select class="period-select" id="lieu-select">
+        <option value="">Tous les lieux</option>
+      </select>
     </div>
 
     <div class="panel-block">
-      <div class="panel-label">Période <small>— moyennes par</small></div>
-      <div class="toggle-group period-grain" id="period-grain">
+      <div class="panel-label"><span class="panel-ico">🕒</span>Période</div>
+      <div class="toggle-group" id="period-grain">
         <button class="toggle active" data-grain="all">Tout</button>
-        <button class="toggle" data-grain="hour">Heure</button>
-        <button class="toggle" data-grain="weekday">Jour</button>
-        <button class="toggle" data-grain="week">Semaine</button>
+        <button class="toggle" data-grain="hour">Heures</button>
+        <button class="toggle" data-grain="day">Jours</button>
+        <button class="toggle" data-grain="week">Semaines</button>
+        <button class="toggle" data-grain="month">Mois</button>
+        <button class="toggle" data-grain="year">Années</button>
       </div>
       <select class="period-select" id="period-value" style="display:none"></select>
+      <!-- Filtres de période ACTIFS, cumulés : l'année choisie reste affichée
+           quand on descend au mois, etc. (chaque badge est retirable). -->
+      <div id="period-badges" class="period-badges" hidden></div>
     </div>
 
     <div class="panel-block">
-      <div class="panel-label">Affichage</div>
+      <button class="btn-primary reset-btn" id="reset-filters" type="button">↺ Réinitialiser les filtres</button>
+    </div>
+
+    <div class="panel-block">
+      <div class="panel-label"><span class="panel-ico">👁️</span>Affichage</div>
       <div class="display-toggles">
         <div class="toggle-group" id="display-mode">
           <button class="toggle active" data-mode="points">Points de test</button>
@@ -111,8 +153,9 @@
     </div><!-- /.panel-content -->
   </aside>
 
-  <button class="locate-btn" id="locate-btn" title="Ma position">
+  <button class="locate-btn" id="locate-btn" title="Afficher ma position sur la carte">
     <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8"/></svg>
+    <span>Localisez-moi</span>
   </button>
 </section>
 
@@ -125,9 +168,9 @@
   </div>
 
   <div class="kpi-grid">
-    <div class="kpi-card"><div class="kpi-value" id="op-kpi-rows">–</div><div class="kpi-label">Lignes comparées</div></div>
-    <div class="kpi-card"><div class="kpi-value" id="op-kpi-tests">–</div><div class="kpi-label">Tests agrégés</div></div>
-    <div class="kpi-card"><div class="kpi-value" id="op-kpi-best">–</div><div class="kpi-label">Meilleur débit ↓ moyen</div></div>
+    <div class="kpi-card"><div class="kpi-value" id="op-kpi-rows">·</div><div class="kpi-label">Lignes comparées</div></div>
+    <div class="kpi-card"><div class="kpi-value" id="op-kpi-tests">·</div><div class="kpi-label">Tests agrégés</div></div>
+    <div class="kpi-card"><div class="kpi-value" id="op-kpi-best">·</div><div class="kpi-label">Meilleur débit ↓ moyen</div></div>
   </div>
 
   <div class="card">
@@ -145,10 +188,10 @@
         <thead><tr>
           <th data-sort="periodKey">Période</th>
           <th data-sort="operator">Opérateur</th>
-          <th data-sort="count">Tests</th>
-          <th data-sort="avgDl">↓ Mbps moy.</th>
-          <th data-sort="avgUl">↑ Mbps moy.</th>
-          <th data-sort="avgPing">Ping moy.</th>
+          <th class="num" data-sort="count">Tests</th>
+          <th class="num" data-sort="avgDl">↓ Mbps moy.</th>
+          <th class="num" data-sort="avgUl">↑ Mbps moy.</th>
+          <th class="num" data-sort="avgPing">Ping moy.</th>
           <th>Réseau</th>
           <th data-sort="location">Géolocalisation</th>
         </tr></thead>
@@ -156,7 +199,7 @@
       </table>
     </div>
     <div class="pagination" id="op-more-wrap" style="display:none">
-      <span id="op-more-info">–</span>
+      <span id="op-more-info">·</span>
       <button class="btn-ghost" id="op-more">Afficher plus</button>
     </div>
   </div>
@@ -170,11 +213,11 @@
   </div>
 
   <div class="kpi-grid">
-    <div class="kpi-card"><div class="kpi-value" id="kpi-total">–</div><div class="kpi-label">Tests réalisés</div></div>
-    <div class="kpi-card"><div class="kpi-value" id="kpi-today">–</div><div class="kpi-label">Tests aujourd'hui</div></div>
-    <div class="kpi-card"><div class="kpi-value" id="kpi-dl">–</div><div class="kpi-label">Débit ↓ moyen (Mbps)</div></div>
-    <div class="kpi-card"><div class="kpi-value" id="kpi-ul">–</div><div class="kpi-label">Débit ↑ moyen (Mbps)</div></div>
-    <div class="kpi-card"><div class="kpi-value" id="kpi-ping">–</div><div class="kpi-label">Ping moyen (ms)</div></div>
+    <div class="kpi-card"><div class="kpi-value" id="kpi-total">·</div><div class="kpi-label">Tests réalisés</div></div>
+    <div class="kpi-card"><div class="kpi-value" id="kpi-today">·</div><div class="kpi-label">Tests aujourd'hui</div></div>
+    <div class="kpi-card"><div class="kpi-value" id="kpi-dl">·</div><div class="kpi-label">Débit ↓ moyen (Mbps)</div></div>
+    <div class="kpi-card"><div class="kpi-value" id="kpi-ul">·</div><div class="kpi-label">Débit ↑ moyen (Mbps)</div></div>
+    <div class="kpi-card"><div class="kpi-value" id="kpi-ping">·</div><div class="kpi-label">Ping moyen (ms)</div></div>
   </div>
 
   <div class="charts-grid">
@@ -226,21 +269,69 @@
       <label>Au <input type="date" id="hf-to"></label>
       <button class="btn-primary" id="hf-apply">Filtrer</button>
       <button class="btn-ghost" id="hf-reset">Réinitialiser</button>
+      <span class="filters-spacer"></span>
+      <button class="btn-ghost" id="hf-csv" title="Exporter les mesures filtrées au format CSV">Exporter CSV</button>
+      <button class="btn-ghost" id="hf-json" title="Exporter les mesures filtrées au format JSON">Exporter JSON</button>
     </div>
     <div class="table-wrap">
       <table class="data-table" id="history-table">
         <thead><tr>
-          <th>Date</th><th>FAI</th><th>Réseau mobile</th><th>Réseau</th><th>↓ Mbps moy.</th><th>↓ pointe</th><th>↑ Mbps moy.</th><th>↑ pointe</th><th>Ping moy.</th><th>Ping min</th><th>Jitter</th><th>Streaming</th><th>Nav. web</th><th>Lieu</th><th>Appareil</th><th>Qualité</th>
+          <th>Date</th><th>FAI</th><th>Réseau mobile</th><th>Réseau</th><th>Signal</th><th>↓ Mbps</th><th>↓ pointe</th><th>↑ Mbps</th><th>↑ pointe</th><th>Ping</th><th>Ping min</th><th>Jitter</th><th>Streaming</th><th>Nav. web</th><th>Lieu</th><th>Appareil</th><th>Qualité</th>
         </tr></thead>
         <tbody></tbody>
       </table>
     </div>
     <div class="pagination">
       <button class="btn-ghost" id="hp-prev">‹ Précédent</button>
-      <span id="hp-info">–</span>
+      <span id="hp-info">·</span>
       <button class="btn-ghost" id="hp-next">Suivant ›</button>
     </div>
   </div>
+</section>
+
+<!-- ─── Vue Prévision (Ouagadougou) ─────────────────────────────────────────── -->
+<section class="view view-forecast" id="view-forecast">
+  <div id="forecast-map"></div>
+  <div class="map-loading" id="fc-loading" style="display:none">Chargement des mesures et de la météo…</div>
+
+  <aside class="control-panel fc-panel">
+    <div class="panel-content">
+      <div class="panel-block">
+        <div class="panel-label">Prévision · Ouagadougou</div>
+        <div class="fc-time" id="fc-time">—</div>
+        <input type="range" id="fc-hour" min="0" max="47" value="0" step="1" aria-label="Heure de la prévision">
+        <div class="fc-range-ends"><span>Maintenant</span><span>+48 h</span></div>
+        <div class="fc-weather" id="fc-weather"></div>
+      </div>
+      <div class="panel-block">
+        <div class="panel-label">Opérateur</div>
+        <div class="operator-chips" id="fc-operators"></div>
+      </div>
+      <div class="panel-block">
+        <div class="panel-label">Technologie</div>
+        <div class="tech-chips" id="fc-techs"></div>
+      </div>
+      <div class="panel-block">
+        <div class="panel-label">Débit descendant attendu</div>
+        <div class="fc-legend">
+          <span><i style="background:#d7191c"></i>&lt; 3 Mb/s</span>
+          <span><i style="background:#fdae61"></i>3 – 8</span>
+          <span><i style="background:#a6d96a"></i>8 – 30</span>
+          <span><i style="background:#1a9641"></i>30 – 100</span>
+          <span><i style="background:#0b5d2c"></i>&gt; 100 Mb/s</span>
+        </div>
+        <div class="fc-count" id="fc-count"></div>
+      </div>
+      <details class="fc-method">
+        <summary>Comment est calculée la prévision ?</summary>
+        <p>Débit prévu = capacité du lieu × charge de l'heure × météo.</p>
+        <p><b>Capacité</b> : les <span id="fc-samples">0</span> tests mobiles Yélé faits à Ouagadougou, pondérés par la distance (rayon 1,2 km).</p>
+        <p><b>Charge</b> : plus il y a d'utilisateurs connectés, plus le débit de chacun baisse. Pointes vers midi et entre 18 h et 22 h, corrigées par les mesures.</p>
+        <p><b>Météo</b> (Open-Meteo) : la pluie ne gêne pas les fréquences mobiles, mais une forte averse dégrade les faisceaux hertziens qui relient les antennes. Les orages font craindre des coupures de sites, la chaleur au-delà de 40 °C une surchauffe.</p>
+        <p>Cercle plein : beaucoup de mesures proches. Cercle en pointillés : prévision peu fiable. Cliquez n'importe où sur la carte pour une prévision à cet endroit.</p>
+      </details>
+    </div>
+  </aside>
 </section>
 
 <!-- ─── Vue Analyse IA ──────────────────────────────────────────────────────── -->
@@ -252,8 +343,8 @@
   </div>
 
   <div class="kpi-grid">
-    <div class="kpi-card"><div class="kpi-value" id="ai-analyzed">–</div><div class="kpi-label">Mesures analysées (30 j)</div></div>
-    <div class="kpi-card"><div class="kpi-value" id="ai-anomaly-count">–</div><div class="kpi-label">Anomalies détectées</div></div>
+    <div class="kpi-card"><div class="kpi-value" id="ai-analyzed">·</div><div class="kpi-label">Mesures analysées (30 j)</div></div>
+    <div class="kpi-card"><div class="kpi-value" id="ai-anomaly-count">·</div><div class="kpi-label">Anomalies détectées</div></div>
   </div>
 
   <div class="charts-grid">
@@ -291,18 +382,22 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script src="assets/vendor/leaflet.js"></script>
+<script src="assets/vendor/leaflet-heat.js"></script>
+<script src="assets/vendor/chart.umd.min.js"></script>
 <script src="config.js"></script>
-<script src="js/quality.js"></script>
+<script src="js/quality.js?v=6"></script>
 <script src="js/api.js"></script>
 <script src="js/burkina.js"></script>
-<script src="js/map.js"></script>
-<script src="js/operators.js"></script>
-<script src="js/stats.js"></script>
-<script src="js/history.js"></script>
-<script src="js/ai.js"></script>
-<script src="js/app.js"></script>
+<!-- ?v= : invalide le cache navigateur à chaque montée de version (Live Server
+     n'envoie aucun en-tête no-cache, et un ancien js/app.js en cache avait
+     privé le bouton thème de son handler). Monter v à chaque modif de JS. -->
+<script src="js/map.js?v=22"></script>
+<script src="js/operators.js?v=2"></script>
+<script src="js/stats.js?v=2"></script>
+<script src="js/history.js?v=2"></script>
+<script src="js/forecast.js?v=1"></script>
+<script src="js/ai.js?v=2"></script>
+<script src="js/app.js?v=2"></script>
 </body>
 </html>
