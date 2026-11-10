@@ -507,6 +507,11 @@ svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; 
 .locate-btn svg { width: 19px; height: 19px; flex: none; }
 .locate-btn span { white-space: nowrap; }
 .locate-btn:hover { background: var(--green-light); }
+/* Interrupteur « Localisez-moi » (comme l'app) : le bouton reste lisible
+   quand un pin attend d'être masqué — liseré vert et libellé « Masquer
+   mon point » au lieu d'un état figé. */
+.locate-btn.locate-active { color: var(--green); box-shadow: var(--shadow-lg), 0 0 0 2px var(--green-light); }
+.locate-btn.locate-active svg { stroke-width: 2.4; }
 
 /* ─── Popups Leaflet ─────────────────────────────────────────────────────── */
 

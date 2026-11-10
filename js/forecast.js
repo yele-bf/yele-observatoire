@@ -61,11 +61,12 @@ const Forecast = (() => {
   const MOBILE_TECH = /^(2G|3G|4G|5G|MOBILE)$/i;
 
   function mobileOperator(p) {
+    // Libellés conformes à l'app (référentiel ARCEP, demande du 10/11).
     const pick = (s) => {
       s = (s || '').toLowerCase();
-      if (/orange|61302/.test(s)) return 'Orange';
-      if (/telecel|61303/.test(s)) return 'Telecel';
-      if (/moov|onatel|telmob|61301/.test(s)) return 'Moov Africa';
+      if (/orange|61302/.test(s)) return 'Orange BF SA';
+      if (/telecel|61303/.test(s)) return 'Telecel Faso SA';
+      if (/moov|onatel|telmob|61301/.test(s)) return 'Moov Africa SA';
       return null;
     };
     return pick(p.simOperator) || pick(p.operator);
@@ -377,7 +378,7 @@ const Forecast = (() => {
       try {
         await Promise.all([loadSamples(), loadWeather()]);
         slider.max = weather.times.length - 1;
-        buildChips('fc-operators', ['Orange', 'Moov Africa', 'Telecel'], 'operator');
+        buildChips('fc-operators', ['Orange BF SA', 'Telecel Faso SA', 'Moov Africa SA'], 'operator');
         buildChips('fc-techs', ['4G', '3G', '2G'], 'tech');
         document.getElementById('fc-samples').textContent = samples.length;
         loading.style.display = 'none';
