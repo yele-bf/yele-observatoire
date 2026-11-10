@@ -1272,25 +1272,49 @@ const MapView = (() => {
       toggle.title = collapsed ? 'Afficher les filtres' : 'Replier les filtres';
     });
 
-    // Géolocalisation du navigateur
+    // Géolocalisation du navigateur — interrupteur (identique à l'app,
+    // revue du 10/11) : 1er appui → localise, place le pin et recentre
+    // (le libellé devient « Masquer mon point ») ; appui suivant → le pin
+    // disparaît (la carte ne bouge pas) ; re-appui → nouvelle position.
+    locateFlag = false;
+    updateLocateLabel();
     document.getElementById('locate-btn').addEventListener('click', () => {
+      if (locateFlag) {
+        clearPin();
+        locateFlag = false;
+        updateLocateLabel();
+        return;
+      }
       if (!navigator.geolocation) return App.toast('Géolocalisation non disponible');
       navigator.geolocation.getCurrentPosition(
         (pos) => {
           const { latitude, longitude, accuracy } = pos.coords;
           if (!flyTo(latitude, longitude, 14)) return;
           dropPin(latitude, longitude, 'Votre position', { accuracy });
+          locateFlag = true;
+          updateLocateLabel();
         },
         // Géolocalisation : déplace la carte ET pose un pin (notre version,
         // avec cercle de précision). Repli (apport de l'équipe, fusion IMP-10):
         // si le GPS natif échoue (autorisations, fournisseur réseau absent sur
-        // un PC), on tente la position IP via ipinfo.io avant le toast.
+        // un PC), on tente la position IP via ipinfo.io avant le toast ; le
+        // pin IP est masqué par le même interrupteur.
         () => locateByIp(),
         // Sans ces options, le navigateur peut renvoyer une position mise en
         // cache depuis des heures : on veut celle d'ici et maintenant.
         { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
       );
     });
+  }
+
+  // Libellé du bouton de localisation : suit l'état de l'interrupteur.
+  function updateLocateLabel() {
+    const btn = document.getElementById('locate-btn');
+    if (!btn) return;
+    const span = btn.querySelector('span');
+    if (span) span.textContent = locateFlag ? 'Masquer mon point' : 'Localisez-moi';
+    btn.title = locateFlag ? 'Masquer mon point sur la carte' : 'Afficher ma position sur la carte';
+    btn.classList.toggle('locate-active', locateFlag);
   }
 
   // Remet tous les filtres dans leur état d'origine, panneau compris.
@@ -1408,6 +1432,9 @@ const MapView = (() => {
   // (IMP-07), où l'on doit distinguer la mesure choisie de toutes les autres.
 
   let pinLayer = null;
+  // État de l'interrupteur « Localisez-moi » : true tant que le pin de
+  // position courant attend d'être masqué par un nouvel appui (comme l'app).
+  let locateFlag = false;
 
   /// Pose un repère et l'accompagne d'une bulle. Le précédent est retiré : on
   /// ne veut qu'un seul repère à la fois, sinon la carte se couvre de marques
@@ -1457,6 +1484,8 @@ const MapView = (() => {
         }
         flyTo(lat, lng, 13);
         dropPin(lat, lng, 'Votre position (géo-localisation IP)');
+        locateFlag = true;
+        updateLocateLabel();
       })
       .catch(() => App.toast('Position introuvable : vérifiez les autorisations'));
   }
@@ -1476,6 +1505,11 @@ const MapView = (() => {
   function showMeasurement(lat, lng, label, zoom = 15) {
     if (!flyTo(lat, lng, zoom)) return false;
     dropPin(lat, lng, label);
+    // Le pin posé sert un renvoi (historique / lieu / recherche) : l'état de
+    // l'interrupteur « Localisez-moi » repart de zéro, sans risque de masquer
+    // ce pin par erreur lors d'un appui suivant.
+    locateFlag = false;
+    updateLocateLabel();
     return true;
   }
 
