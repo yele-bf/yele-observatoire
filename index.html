@@ -163,14 +163,15 @@
 <section class="view view-operators" id="view-operators">
   <div class="page-head">
     <h1>Opérateurs</h1>
-    <p>Débits mesurés par opérateur, regroupés par période et par lieu de test.
-       Cliquez sur un en-tête pour trier, ou sur un lieu pour le retrouver sur la carte.</p>
+    <p>Quel réseau est le plus rapide, où, et quand ? Comparez Orange BF, Telecel Faso
+       et Moov Africa à partir des tests des utilisateurs Yélé, puis cliquez un lieu
+       pour le retrouver sur la carte.</p>
   </div>
 
-  <div class="kpi-grid">
-    <div class="kpi-card"><div class="kpi-value" id="op-kpi-rows">·</div><div class="kpi-label">Lignes comparées</div></div>
-    <div class="kpi-card"><div class="kpi-value" id="op-kpi-tests">·</div><div class="kpi-label">Tests agrégés</div></div>
-    <div class="kpi-card"><div class="kpi-value" id="op-kpi-best">·</div><div class="kpi-label">Meilleur débit ↓ moyen</div></div>
+  <div class="op-compare-wrap">
+    <div class="op-section-title">Résumé</div>
+    <div class="op-compare" id="op-compare"></div>
+    <div class="op-compare-sub" id="op-compare-sub">Chargement…</div>
   </div>
 
   <div class="card">
@@ -189,11 +190,11 @@
           <th data-sort="periodKey">Période</th>
           <th data-sort="operator">Opérateur</th>
           <th class="num" data-sort="count">Tests</th>
-          <th class="num" data-sort="avgDl">↓ Mbps moy.</th>
-          <th class="num" data-sort="avgUl">↑ Mbps moy.</th>
-          <th class="num" data-sort="avgPing">Ping moy.</th>
-          <th>Réseau</th>
-          <th data-sort="location">Géolocalisation</th>
+          <th class="num" data-sort="avgDl" title="Vitesse de réception moyenne. Plus haut = mieux.">Téléchargement (Mb/s)</th>
+          <th class="num" data-sort="avgUl" title="Vitesse d'émission moyenne. Plus haut = mieux.">Envoi (Mb/s)</th>
+          <th class="num" data-sort="avgPing" title="Temps de réponse du réseau. Plus bas = mieux.">Réactivité (ms)</th>
+          <th title="Technologie la plus représentée dans le groupe.">Réseau</th>
+          <th data-sort="location" title="Cliquez un lieu pour l'ouvrir sur la carte.">Lieu</th>
         </tr></thead>
         <tbody></tbody>
       </table>

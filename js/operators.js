@@ -94,13 +94,13 @@ const Operators = (() => {
   }
 
   // Une ligne = (période, opérateur, lieu). Les tests sans `location` sont
-  // regroupés sous « Lieu non renseigné » plutôt que d'être écartés.
+  // regroupés sous « Lieu non précisé » plutôt que d'être écartés.
   function aggregate() {
     const groups = {};
     filtered().forEach((p) => {
       const period = periodOf(p);
       const operator = p.operator || 'Inconnu';
-      const location = p.location || 'Lieu non renseigné';
+      const location = p.location || 'Lieu non précisé';
       const key = `${period.key}|${operator}|${location}`;
       (groups[key] = groups[key] || { period, operator, location, pts: [] }).pts.push(p);
     });
@@ -154,30 +154,76 @@ const Operators = (() => {
   function refresh() {
     rows = aggregate();
     shown = PAGE_STEP;
-    renderSummary();
+    renderCompare();
     renderTable();
   }
 
-  function renderSummary() {
-    const tests = rows.reduce((s, r) => s + r.count, 0);
-    document.getElementById('op-kpi-rows').textContent = rows.length.toLocaleString('fr-FR');
-    document.getElementById('op-kpi-tests').textContent = tests.toLocaleString('fr-FR');
-
-    // Meilleur opérateur = plus haut débit ↓ moyen, pondéré par le nombre de tests.
+  // ── Résumé grand public : une carte par opérateur ───────────────────────────
+  // La réponse à la question « quel réseau marche le mieux ? » : les cartes,
+  // triées du plus rapide au plus lent, proviennent des MÊMES filtres que le
+  // tableau (opérateur, technologie, mais toutes périodes et tous lieux : des
+  // moyennes par jour seraient illisibles).
+  function renderCompare() {
+    const pts = filtered();
     const byOp = {};
-    rows.forEach((r) => {
-      const acc = byOp[r.operator] = byOp[r.operator] || { sum: 0, count: 0 };
-      acc.sum += r.avgDl * r.count;
-      acc.count += r.count;
+    pts.forEach((p) => {
+      const acc = byOp[p.operator || 'Inconnu']
+        = byOp[p.operator || 'Inconnu'] || { sumDl: 0, sumPing: 0, count: 0 };
+      acc.sumDl += Number(p.download) || 0;
+      acc.sumPing += Number(p.ping) || 0;
+      acc.count += 1;
     });
-    const best = Object.entries(byOp)
-      .map(([operator, a]) => ({ operator, avg: a.sum / a.count }))
-      .sort((a, b) => b.avg - a.avg)[0];
 
-    const el = document.getElementById('op-kpi-best');
-    if (!best) { el.textContent = '·'; return; }
-    el.innerHTML = `<span style="color:${operatorColor(best.operator)}">${escapeHtml(best.operator)}</span>`
-      + `<small> ${best.avg.toFixed(1)} Mbps</small>`;
+    const cards = Object.entries(byOp)
+      .map(([operator, a]) => ({
+        operator,
+        avgDl: a.sumDl / a.count,
+        avgPing: a.sumPing / a.count,
+        count: a.count,
+      }))
+      .sort((a, b) => b.avgDl - a.avgDl);
+
+    const wrap = document.getElementById('op-compare');
+    if (!cards.length) {
+      wrap.innerHTML = '<div class="op-card-empty">Aucune mesure pour ces filtres.</div>';
+    } else {
+      const maxDl = Math.max(...cards.map((c) => c.avgDl), 1);
+      wrap.innerHTML = cards.map((c, i) => {
+        const lvl = qualityLevel({ download: c.avgDl }, 'debit');
+        return `
+          <div class="op-card${i === 0 && cards.length > 1 ? ' op-card-best' : ''}">
+            ${i === 0 && cards.length > 1 ? '<div class="op-best-badge">Réseau le plus rapide (débit moyen ↓)</div>' : ''}
+            <div class="op-card-name">
+              <span class="op-dot" style="background:${operatorColor(c.operator)}"></span>
+              <span>${escapeHtml(c.operator)}</span>
+            </div>
+            <div class="op-card-dl"><b>${c.avgDl.toFixed(1)}</b><small>Mb/s</small></div>
+            <div class="op-bar"><span class="op-bar-fill" style="width:${(c.avgDl / maxDl) * 100}%;background:${qualityColor(lvl)}"></span></div>
+            <div class="op-card-stats">
+              <div><b>${Math.round(c.avgPing)} ms</b><small>Réactivité</small></div>
+              <div><b>${c.count.toLocaleString('fr-FR')}</b><small>Tests</small></div>
+            </div>
+          </div>`;
+      }).join('');
+    }
+
+    // Sous-titre : la fenêtre réelle couverte par les tests affichés (« Tests
+    // des 8 derniers jours »), en tonnes grand public plutôt qu'un total brut.
+    document.getElementById('op-compare-sub').textContent = spanLabel(pts);
+  }
+
+  // Nombre de jours distincts couverts par les tests affichés.
+  function spanLabel(pts) {
+    if (!pts.length) return 'Aucun test sur la période';
+    const tests = `${pts.length.toLocaleString('fr-FR')} tests`;
+    const dates = pts.map((p) => parseTs(p.timestamp)).filter((d) => !isNaN(d.getTime()));
+    if (!dates.length) return tests;
+    const n = new Set(dates.map(dayKey)).size;
+    if (n === 1) return `${tests} du jour`;
+    // Fenêtre glissante plausible : on borne le libellé aux longues historicités.
+    const spanDays = Math.round((Date.now() - Math.min(...dates.map((d) => d.getTime()))) / 86400000) + 1;
+    if (spanDays > 60) return `${tests} · toutes dates (${n} jours de mesure)`;
+    return `${tests} des ${spanDays} derniers jours`;
   }
 
   function renderTable() {
@@ -194,7 +240,13 @@ const Operators = (() => {
     // Échelle des barres de débit : le maximum de la page affichée.
     const maxDl = Math.max(...visible.map((r) => r.avgDl), 1);
 
-    tbody.innerHTML = visible.map((r) => {
+    // Séparation visuelle par période : une ligne allégée avant le premier
+    // groupe de chaque jour/semaine. Seulement quand le tri porte sur la
+    // période — dans les autres tris, les périodes sont mélangées et une
+    // séparation mentirait.
+    const byPeriod = state.sort === 'periodKey';
+
+    tbody.innerHTML = visible.map((r, i) => {
       const lvl = qualityLevel({ download: r.avgDl }, 'debit');
       const net = r.tech
         ? `<span class="net-badge" style="background:${networkColor(r.tech)}">${escapeHtml(r.tech)}</span>` : '·';
@@ -205,7 +257,12 @@ const Operators = (() => {
 Cliquer pour voir sur la carte">${escapeHtml(place)}</button>`
         : `<span class="geo-none" title="${escapeHtml(place)}">${escapeHtml(place)}</span>`;
 
+      const sep = byPeriod && (i === 0 || visible[i - 1].periodLabel !== r.periodLabel)
+        ? `<tr class="op-period-row"><td colspan="8">${escapeHtml(r.periodLabel)}</td></tr>`
+        : '';
+
       return `
+        ${sep}
         <tr>
           <td class="op-period">${escapeHtml(r.periodLabel)}</td>
           <td class="op-name">
