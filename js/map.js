@@ -1505,10 +1505,12 @@ const MapView = (() => {
   function showMeasurement(lat, lng, label, zoom = 15) {
     if (!flyTo(lat, lng, zoom)) return false;
     dropPin(lat, lng, label);
-    // Le pin posé sert un renvoi (historique / lieu / recherche) : l'état de
-    // l'interrupteur « Localisez-moi » repart de zéro, sans risque de masquer
-    // ce pin par erreur lors d'un appui suivant.
-    locateFlag = false;
+    // Tout pin (recherche, historique, lieu de la vue Opérateurs) doit rester
+    // masquable : on arme l'interrupteur « Localisez-moi », dont l'appui
+    // suivant fait disparaître ce repère (demande du 10/11 — la protection
+    // « renvois non pris en sandwich » masquait justement le pin de
+    // recherche à l'utilisateur).
+    locateFlag = true;
     updateLocateLabel();
     return true;
   }
