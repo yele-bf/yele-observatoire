@@ -1320,7 +1320,7 @@ const MapView = (() => {
   // Remet tous les filtres dans leur état d'origine, panneau compris.
   function resetFilters() {
     state.netType = 'mobile';
-    state.operator = '';
+    state.operator = '__all__';
     state.mapType = 'global';
     state.tech = '';
     state.lieu = '';
