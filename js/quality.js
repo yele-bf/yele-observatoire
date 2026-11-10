@@ -289,19 +289,25 @@ function normalizeNetwork(value) {
 // « ARCEP » est le contre-exemple qui impose ce champ, le nom brut de
 // l'autorité ne contenant pas son propre sigle.
 // Les trois opérateurs mobiles du Burkina Faso (liste fixe, référentiel
-// ARCEP). Tout opérateur n'appartenant pas à cette liste est considéré comme
-// un fournisseur d'accès fixe (FAI) et va dans la section dédiée du panneau.
-const MOBILE_OPERATORS = ['Orange Burkina Faso', 'Moov Africa', 'Telecel Faso'];
+// ARCEP, libellés conformes à l'app mobile — revue du 10/11). Tout
+// opérateur n'appartenant pas à cette liste est considéré comme un
+// fournisseur d'accès fixe (FAI) et va dans la section dédiée du panneau.
+const MOBILE_OPERATORS = ['Orange BF SA', 'Telecel Faso SA', 'Moov Africa SA'];
 
 function isMobileOperator(name) {
   return MOBILE_OPERATORS.some((m) => String(name || '').toLowerCase().includes(m.toLowerCase().split(' ')[0]));
 }
 
+// `query` est le terme envoyé au backend par la vue Historique, qui filtre
+// côté serveur sur le nom BRUT stocké en base. Il ne peut donc pas être le
+// nom canonique — un fragment distinctif du nom réel suffit (cf. ARCEP).
+// `short` reprend le nom canonique complet : les libellés d'opérateur
+// affichés (sélecteur carte, vue Opérateurs, historique) sont les mêmes
+// que ceux de l'app (demande 10/11).
 const OPERATOR_RULES = [
-  { test: /onatel|telmob/i,               name: 'ONATEL / Telmob',     short: 'ONATEL',  query: 'ONATEL' },
-  { test: /orange/i,                      name: 'Orange Burkina Faso', short: 'Orange',  query: 'Orange' },
-  { test: /telecel/i,                     name: 'Telecel Faso',        short: 'Telecel', query: 'TELECEL' },
-  { test: /moov/i,                        name: 'Moov Africa',         short: 'Moov',    query: 'Moov' },
+  { test: /onatel|telmob|moov/i,          name: 'Moov Africa SA',      short: 'Moov Africa SA', query: 'Moov' },
+  { test: /orange/i,                      name: 'Orange BF SA',        short: 'Orange BF SA',   query: 'Orange' },
+  { test: /telecel/i,                     name: 'Telecel Faso SA',     short: 'Telecel Faso SA', query: 'TELECEL' },
   { test: /anptic|promotion des tic/i,    name: 'ANPTIC',              short: 'ANPTIC',  query: 'ANPTIC' },
   { test: /regulation des communications|arcep/i, name: 'ARCEP',       short: 'ARCEP',   query: 'Regulation' },
   { test: /\bgva\b/i,                     name: 'GVA',                 short: 'GVA',     query: 'GVA' },

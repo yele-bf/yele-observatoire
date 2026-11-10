@@ -8,12 +8,13 @@ const MapView = (() => {
   let countryBounds = null;
 
   const state = {
-    // Flux façon nPerf : 1) on choisit le RÉSEAU (mobile/fixe), 2) l'OPÉRATEUR
-    // (obligatoire — sans choix, la carte n'affiche rien), 3) le type de carte
-    // (débit/latence/…, l'équivalent nPerf de coverage/bitrate). La technologie
-    // et la période affinent ensuite.
+    // Flux façon nPerf inversé (demande 10/11) : 1) on choisit le RÉSEAU
+    // (mobile/fixe), 2) l'OPÉRATEUR — par défaut « Tous les opérateurs »
+    // (la carte affiche d'emblée tout le réseau, comme sur l'app), 3) le
+    // type de carte (débit/latence/…, l'équivalent nPerf de coverage/
+    // bitrate). La technologie et la période affinent ensuite.
     netType: 'mobile',      // mobile | fixe
-    operator: '',           // OBLIGATOIRE pour afficher ('' = carte vide)
+    operator: '__all__',    // '__all__' = tous les opérateurs | nom canonique
     mapType: 'global',      // global | coverage | dl | ul | ping | streaming | browsing : ce que la couleur montre
     tech: '',               // '' = toutes (mobile uniquement)
     mode: 'points',        // points | heatmap : les points de test sont le mode
@@ -413,15 +414,10 @@ const MapView = (() => {
       updateMaptypeHint();
       return;
     }
-    // Réseau FIXE : AUCUN seuil de qualité, pour TOUS les usages (décision
-    // utilisateur du 07/10 : streaming et navigation comme les autres — de
-    // simples points de mesure ; la lecture détaillée reste dans le popup).
-    if (state.netType === 'fixe') {
-      el.innerHTML = '<div class="legend-title">Points de mesure</div>'
-        + '<div class="legend-sub">Aucun seuil de qualité en fixe (débit selon le forfait souscrit) : cliquez un point pour voir sa mesure.</div>';
-      updateMaptypeHint();
-      return;
-    }
+    // Réseau FIXE : la légende standard des niveaux s'affiche aussi, comme
+    // sur l'onglet Couverture de l'app (demande 10/11 — elle remplace la
+    // décision du 07/10 « aucun seuil de qualité en fixe », qui laissait la
+    // légende muette) : les fourchettes servent de lecture des mesures.
     const usage = USAGES[usageForMapType()];
     const rows = [...usage.levels].reverse().map((l) => `
       <div class="legend-row">
@@ -478,18 +474,28 @@ const MapView = (() => {
   // ── Filtres ─────────────────────────────────────────────────────────────────
 
   function filteredPoints(skipPeriodGrain = null) {
-    // Flux nPerf : sans opérateur choisi, la carte n'affiche RIEN (c'est le
-    // « Select a carrier! ») — on évite le ramassis de données mélangées.
-    if (!state.operator) return [];
+    // « Tous les opérateurs / Tous les fournisseurs » (__all__) : tous les
+    // tests du réseau en cours (cellulaires en mobile, non cellulaires en
+    // fixe), filtres technologie / lieu / période appliqués comme les autres.
+    // Façon nPerf inversée : plus de voile « Choisissez un opérateur »,
+    // la carte affiche d'emblée tout le réseau (demande 10/11).
     const mobileMode = state.netType === 'mobile';
     const allIsps = state.operator === '__all__';
+    if (allIsps) {
+      return allPoints.filter((p) => {
+        if (mobileMode ? !isCellularTest(p) : isCellularTest(p)) return false;
+        if (mobileMode && state.tech) {
+          const t = p.networkType || NETWORK_UNKNOWN;
+          if (t !== state.tech) return false;
+        }
+        if (state.lieu && villeOf(p) !== state.lieu) return false;
+        return timeMatch(p, skipPeriodGrain);
+      });
+    }
+    // Sans opérateur précis sélectionné (jamais le cas par défaut depuis le
+    // 10/11), la carte n'affiche rien — garde sémantique conservée.
+    if (!state.operator) return [];
     return allPoints.filter((p) => {
-      const t0 = p.networkType || NETWORK_UNKNOWN;
-      if (allIsps) {
-        // « Tous les fournisseurs » : tous les tests non cellulaires.
-        if (isCellularTest(p)) return false;
-        return timeMatch(p);
-      }
       const op = p.operator || 'Inconnu';
       if (op !== state.operator) return false;
       if (mobileMode) {
@@ -573,14 +579,14 @@ const MapView = (() => {
 
     let entries;
     if (state.netType === 'mobile') {
-      // Les 3 opérateurs mobiles TOUJOURS proposés (référentiel connu), avec
-      // leur compte — « (aucun test) » quand la base n'en a pas encore.
-      const MOBILE = ['Orange Burkina Faso', 'Moov Africa', 'Telecel Faso'];
-      entries = MOBILE.map((op) => ({ op, n: counts[op] || 0 }));
+      // Les 3 opérateurs mobiles TOUJOURS proposés (référentiel ARCEP, mêmes
+      // libellés que l'app : Orange BF SA / Telecel Faso SA / Moov Africa SA),
+      // avec leur compte — « (aucun test) » quand la base n'en a pas encore.
+      entries = MOBILE_OPERATORS.map((op) => ({ op, n: counts[op] || 0 }));
       // Un opérateur cellulaire non canonique présent en base (autre libellé)
       // est proposé en plus, dynamiquement.
       Object.keys(counts)
-        .filter((op) => !MOBILE.includes(op) && /G$/.test(op) === false && op !== 'Inconnu')
+        .filter((op) => !MOBILE_OPERATORS.includes(op) && /G$/.test(op) === false && op !== 'Inconnu')
         .filter((op) => allPoints.some((q) => (q.operator || '') === op && isCellularTest(q)))
         .forEach((op) => entries.push({ op, n: counts[op] }));
     } else {
@@ -591,19 +597,25 @@ const MapView = (() => {
 
     const header = state.netType === 'fixe'
       ? `<option value="__all__">Tous les fournisseurs</option>`
-      : `<option value="">Choisir un opérateur</option>`;
+      // Demande 10/11 : « Tous les opérateurs » par défaut — tous les tests
+      // cellulaires s'affichent sans choisir d'opérateur (comme sur l'app).
+      : `<option value="__all__">Tous les opérateurs</option>`;
     // Le réseau (mobile/fixe) est porté par le SÉLECTEUR Mobile/Fixe :
-    // le libellé de l'option reste propre (« Orange (424) »), sans suffixe
-    // « (mobile) » / « (fixe) » (demande 08/10 : retiré du dashboard).
+    // le libellé de l'option reste propre (« Orange BF SA (424) »), sans
+    // suffixe « (mobile) » / « (fixe) » (demande 08/10 : retiré du dashboard).
+    // Les 3 opérateurs mobiles affichent leur libellé canonique complet
+    // (identique à l'app) ; seule la liste dynamique des FAI est écourtée.
     sel.innerHTML = header
       + entries.map((e) => {
-        const short = e.op === 'Inconnu' ? 'Inconnu' : operatorShortLabel(e.op);
+        const canonical = MOBILE_OPERATORS.includes(e.op) || state.netType === 'mobile';
+        const short = e.op === 'Inconnu' ? 'Inconnu'
+          : canonical ? e.op : operatorShortLabel(e.op);
         return `<option value="${escapeHtml(e.op)}">${escapeHtml(short)}${e.n ? ` (${e.n})` : ' (aucun test)'}</option>`;
       }).join('');
     // Conserve la sélection si elle existe encore dans la nouvelle liste.
     const keep = entries.some((e) => e.op === previous)
-      || (state.netType === 'fixe' && previous === '__all__');
-    sel.value = keep ? previous : (state.netType === 'fixe' ? '__all__' : '');
+      || previous === '__all__';
+    sel.value = keep ? previous : '__all__';
     state.operator = sel.value;
   }  // Le bouton « Couverture » n'a de sens qu'en réseau mobile (chez nPerf,
   // la couverture est une notion cellulaire). En Fixe : caché.
@@ -771,8 +783,9 @@ const MapView = (() => {
     markersLayer.clearLayers();
     if (heatLayer) { map.removeLayer(heatLayer); heatLayer = null; }
 
-    // Façon nPerf (« Select a carrier! ») : sans opérateur choisi, la carte
-    // affiche un voile explicatif au lieu d'un ramassis de données mélangées.
+    // Façon nPerf inversée (demande 10/11) : la carte démarre sur « Tous les
+    // opérateurs » — aucun voile par défaut. Ce garde-fou ne s'affiche que si
+    // aucune sélection n'existe (état interne jamais naturel).
     let overlay = document.getElementById('map-operator-overlay');
     if (!state.operator) {
       if (!overlay) {
@@ -1299,7 +1312,7 @@ const MapView = (() => {
 
     // Listes reconstruites et éléments dépendants réaffichés/masqués, comme
     // après un changement manuel de réseau.
-    buildOperatorSelect();   // remet « — Choisir un opérateur — »
+    buildOperatorSelect();   // remet « Tous les opérateurs »
     buildTechChips();
     buildLieuSelect();
     populatePeriodValues();  // masque le select de valeur (grain = all)
