@@ -16,6 +16,10 @@
 
 const Operators = (() => {
   const PAGE_STEP = 100;
+  // Mémorisation des filtres (extra validé) : l'utilisateur retrouve sa
+  // sélection à la prochaine visite. Toute défaillance du stockage reste
+  // silencieuse : la page fonctionne sans mémoire.
+  const MEM_KEY = 'yele-comparatif-filtres';
 
   let built = false;
   let points = [];
@@ -110,6 +114,8 @@ const Operators = (() => {
       }
     }
 
+    // Les filtres mémorisés sont restaurés AVANT la construction des listes.
+    restoreState();
     buildFilters();
     bind();
     refresh();
@@ -121,7 +127,43 @@ const Operators = (() => {
     buildOperatorSelect();
     buildTechChips();
     updateTechVisibility();
+    syncToggles();
     populatePeriodValues();
+  }
+
+  // Boutons actifs (réseau et grain de période) alignés sur l'état — utile au
+  // démarrage quand les filtres ont été restaurés de la mémoire.
+  function syncToggles() {
+    document.querySelectorAll('#op-net-type .toggle').forEach((b) =>
+      b.classList.toggle('active', b.dataset.net === state.netType));
+    document.querySelectorAll('#op-period-grain .toggle').forEach((b) =>
+      b.classList.toggle('active', b.dataset.grain === state.period.grain));
+  }
+
+  // ── Mémorisation des filtres (extra validé) ────────────────────────────────
+
+  function saveState() {
+    try {
+      localStorage.setItem(MEM_KEY, JSON.stringify({
+        netType: state.netType,
+        operator: state.operator,
+        tech: state.tech,
+        period: state.period,
+      }));
+    } catch (e) { /* stockage indisponible : pas bloquant */ }
+  }
+
+  function restoreState() {
+    try {
+      const s = JSON.parse(localStorage.getItem(MEM_KEY));
+      if (!s) return;
+      if (s.netType === 'mobile' || s.netType === 'fixe') state.netType = s.netType;
+      if (typeof s.operator === 'string' && s.operator) state.operator = s.operator;
+      if (typeof s.tech === 'string') state.tech = s.tech;
+      if (s.period && typeof s.period === 'object') {
+        state.period = { grain: s.period.grain || 'all', values: s.period.values || {} };
+      }
+    } catch (e) { /* état corrompu : défauts */ }
   }
 
   function filtered(skipGrain = null) {
@@ -169,6 +211,10 @@ const Operators = (() => {
       const short = e.op === 'Inconnu' ? 'Inconnu' : canonical ? e.op : operatorShortLabel(e.op);
       return `<option value="${escapeHtml(e.op)}">${escapeHtml(short)}${e.n ? ` (${e.n})` : ' (aucun test)'}</option>`;
     }).join('');
+    // Un opérateur mémorisé qui n'existe plus dans la liste repart de « tous ».
+    if (state.operator !== '__all__' && !entries.some((e) => e.op === state.operator)) {
+      state.operator = '__all__';
+    }
     sel.value = state.operator;
   }
 
@@ -179,6 +225,8 @@ const Operators = (() => {
     const techs = ['Toutes', '2G', '3G', '4G', '5G'];
     chips.innerHTML = techs.map((t) =>
       `<button class="chip${t === 'Toutes' ? ' active' : ''}" data-tech="${t === 'Toutes' ? '' : t}">${t}</button>`).join('');
+    // La chip active suit l'état (restauré de la mémoire au démarrage).
+    chips.querySelectorAll('.chip').forEach((c) => c.classList.toggle('active', c.dataset.tech === state.tech));
     chips.querySelectorAll('.chip').forEach((chip) => {
       chip.addEventListener('click', () => {
         chips.querySelectorAll('.chip').forEach((c) => c.classList.remove('active'));
@@ -246,6 +294,9 @@ const Operators = (() => {
     state.tech = '';
     state.period = { grain: 'all', values: {} };
     expandedKey = null;
+    // La mémoire suit : un reset ne doit pas ressusciter les filtres au
+    // prochain chargement.
+    try { localStorage.removeItem(MEM_KEY); } catch (e) { /* pas bloquant */ }
 
     const activate = (groupSel, attr, val) =>
       document.querySelectorAll(`${groupSel} .toggle`).forEach((b) =>
@@ -439,13 +490,7 @@ const Operators = (() => {
     const sorted = rows;
     const visible = sorted.slice(0, shown);
 
-    if (!visible.length) {
-      tbody.innerHTML = `<tr><td colspan="${ncols}" class="op-empty">Aucune mesure pour ces filtres.</td></tr>`;
-      document.getElementById('op-more-wrap').style.display = 'none';
-      return;
-    }
-
-    // Ligne d'information au-dessus du tableau : nombre de groupes + filtres.
+    // Contexte de filtres, affiché dans le bandeau et dans l'état vide.
     const bits = [];
     if (state.netType === 'fixe') bits.push('Fixe');
     if (state.operator !== '__all__') bits.push(state.operator);
@@ -455,6 +500,16 @@ const Operators = (() => {
     document.getElementById('op-table-info').textContent =
       `${visible.length} groupe${visible.length > 1 ? 's' : ''} comparé${visible.length > 1 ? 's' : ''}`
       + (bits.length ? ` - filtres : ${bits.join(', ')}` : '');
+
+    if (!visible.length) {
+      // État vide guidé (extra validé) : on explique le vide et on propose
+      // la sortie en un clic, plutôt qu'un « aucune donnée » sec.
+      tbody.innerHTML = `<tr><td colspan="${ncols}" class="op-empty op-empty-guided">
+        Aucune mesure pour ces filtres${bits.length ? ` (${escapeHtml(bits.join(', '))})` : ''}.<br>
+        <button class="btn-primary reset-btn" id="op-empty-reset" type="button">Réinitialiser les filtres</button></td></tr>`;
+      document.getElementById('op-more-wrap').style.display = 'none';
+      return;
+    }
 
     tbody.innerHTML = visible.map((r) => {
       const key = `${r.dateKey}|${r.hour ?? ''}|${r.operator}|${r.location}`;
@@ -567,6 +622,8 @@ Cliquer pour voir sur la carte">${escapeHtml(place)}</button>`
     // renvoie vers la carte (délégation : les lignes sont recréées à chaque
     // rendu).
     document.querySelector('#operators-table tbody').addEventListener('click', (e) => {
+      // Bouton de sortie de l'état vide : mêmes effets que le reset du haut.
+      if (e.target.closest('#op-empty-reset')) { resetFilters(); return; }
       const geoBtn = e.target.closest('.geo-link');
       if (geoBtn) {
         App.switchView('map');
@@ -589,11 +646,213 @@ Cliquer pour voir sur la carte">${escapeHtml(place)}</button>`
     });
   }
 
+  // ── Exports CSV / XLSX / PNG (extra validé) ────────────────────────────────
+  // Les trois formats exportent la MÊME vue : les groupes comparés sous les
+  // filtres courants (pas seulement les 100 premières lignes affichées).
+
+  function exportRows() {
+    const mobile = state.netType === 'mobile';
+    const cols = mobile
+      ? ['Date', 'Opérateur', 'Techno', 'Tests', 'Download (Mb/s)', 'Upload (Mb/s)', 'RSRP (dBm)', 'RSRQ (dB)', 'Latence (ms)', 'Lieu']
+      : ['Date', 'FAI', 'Techno', 'Tests', 'Download (Mb/s)', 'Upload (Mb/s)', 'RSSI (dBm)', 'Latence (ms)', 'Lieu'];
+    const line = (r) => mobile
+      ? [r.dateLabel, r.operator, r.tech, r.count, r.avgDl, r.avgUl, null, null, Math.round(r.avgPing), r.location]
+      : [r.dateLabel, r.operator, r.tech, r.count, r.avgDl, r.avgUl, null, Math.round(r.avgPing), r.location];
+    // null = signal pas encore diffusé par l'API : exporté « — » comme à l'écran.
+    return { mobile, cols, rows: rows.map(line) };
+  }
+
+  function exportFileNames(ext) {
+    const d = new Date();
+    const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return `comparatif-${state.netType}-${day}.${ext}`;
+  }
+
+  function downloadBlob(blob, name) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  document.getElementById('op-export-csv').addEventListener('click', () => {
+    const { cols, rows: lines } = exportRows();
+    // BOM UTF-8 + point-virgule : s'ouvre proprement dans Excel FR/LibreOffice.
+    const fmt = (v) => v == null ? '—'
+      : typeof v === 'number' ? (Number.isInteger(v) ? String(v) : v.toFixed(1).replace('.', ','))
+      : String(v);
+    const csv = '\uFEFF' + [cols.join(';')]
+      .concat(lines.map((r) => r.map(fmt).join(';')))
+      .join('\r\n');
+    downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8' }), exportFileNames('csv'));
+  });
+
+  // ── XLSX : vrai classeur, généré sans librairie ────────────────────────────
+  // Un .xlsx est un zip de XML. On écrit l'archive à la main : CRC32 + entrées
+  // « stored » (sans compression) suffisent pour un fichier valide et restent
+  // lisibles par Excel/LibreOffice, comme les PDF de l'app sans dépendance.
+
+  const CRC_TABLE = (() => {
+    const t = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      t[n] = c >>> 0;
+    }
+    return t;
+  })();
+
+  function crc32(bytes) {
+    let c = 0xFFFFFFFF;
+    for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+    return (c ^ 0xFFFFFFFF) >>> 0;
+  }
+
+  // Archive ZIP minimale (entrées stockées, répertoire central, EOCD).
+  function zipStore(entries) {
+    const enc = new TextEncoder();
+    const chunks = [];
+    const central = [];
+    let offset = 0;
+    for (const [name, content] of entries) {
+      const nameBytes = enc.encode(name);
+      const data = enc.encode(content);
+      const crc = crc32(data);
+      const local = new DataView(new ArrayBuffer(30));
+      local.setUint32(0, 0x04034b50, true);   // signature
+      local.setUint16(4, 20, true);           // version requise
+      local.setUint16(6, 0x0800, true);       // drapeau UTF-8
+      local.setUint16(8, 0, true);            // méthode : stored
+      local.setUint16(10, 0, true);           // heure (pas nécessaire)
+      local.setUint16(12, 0, true);           // date
+      local.setUint32(14, crc, true);
+      local.setUint32(18, data.length, true); // taille compressée
+      local.setUint32(22, data.length, true); // taille réelle
+      local.setUint16(26, nameBytes.length, true);
+      local.setUint16(28, 0, true);           // nom extra
+      chunks.push(new Uint8Array(local.buffer), nameBytes, data);
+      central.push({ nameBytes, crc, size: data.length, offset });
+      offset += 30 + nameBytes.length + data.length;
+    }
+    const centralStart = offset;
+    let centralSize = 0;
+    for (const e of central) {
+      const cd = new DataView(new ArrayBuffer(46));
+      cd.setUint32(0, 0x02014b50, true);      // signature
+      cd.setUint16(4, 20, true);              // version d'écriture
+      cd.setUint16(6, 20, true);              // version requise
+      cd.setUint16(8, 0x0800, true);          // UTF-8
+      cd.setUint32(16, e.crc, true);
+      cd.setUint32(20, e.size, true);
+      cd.setUint32(24, e.size, true);
+      cd.setUint16(28, e.nameBytes.length, true);
+      cd.setUint32(42, e.offset, true);       // position de l'entrée locale
+      chunks.push(new Uint8Array(cd.buffer), e.nameBytes);
+      centralSize += 46 + e.nameBytes.length;
+    }
+    const end = new DataView(new ArrayBuffer(22));
+    end.setUint32(0, 0x06054b50, true);       // signature EOCD
+    end.setUint16(8, central.length, true);   // nb d'entrées
+    end.setUint16(10, central.length, true);
+    end.setUint32(12, centralSize, true);
+    end.setUint32(16, centralStart, true);
+    chunks.push(new Uint8Array(end.buffer));
+    return new Blob(chunks, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  }
+
+  document.getElementById('op-export-xlsx').addEventListener('click', () => {
+    const { cols, rows: lines } = exportRows();
+    const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    // Cellule : nombre en type natif, texte en inlineStr, null = « — ».
+    const cell = (v, r, c) => {
+      if (v == null) return `<c r="${r}${c}" t="inlineStr"><is><t>—</t></is></c>`;
+      if (typeof v === 'number') return `<c r="${r}${c}" t="n"><v>${v}</v></c>`;
+      return `<c r="${r}${c}" t="inlineStr"><is><t xml:space="preserve">${esc(v)}</t></is></c>`;
+    };
+    const sheetRows = [cols.map((c, i) => cell(c, 1, i + 1)).join('')]
+      .concat(lines.map((r, ri) => r.map((v, i) => cell(v, ri + 2, i + 1)).join('')))
+      .map((cells, ri) => `<row r="${ri + 1}">${cells}</row>`).join('');
+    const parts = [
+      ['[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        + '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        + '<Default Extension="xml" ContentType="application/xml"/>'
+        + '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+        + '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+        + '</Types>'],
+      ['_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        + '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+        + '</Relationships>'],
+      ['xl/workbook.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        + '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        + 'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        + `<sheets><sheet name="Comparatif" sheetId="1" r:id="rId1"/></sheets></workbook>`],
+      ['xl/_rels/workbook.xml.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        + '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+        + '</Relationships>'],
+      ['xl/worksheets/sheet1.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        + `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${sheetRows}</sheetData></worksheet>`],
+    ];
+    downloadBlob(zipStore(parts), exportFileNames('xlsx'));
+  });
+
+  document.getElementById('op-export-png').addEventListener('click', () => {
+    const { cols, rows: lines } = exportRows();
+    // Image en 2x pour rester nette sur écran HiDPI.
+    const S = 2;
+    const colW = 150;                       // largeur de colonne (px logiques)
+    const W = 40 + cols.length * colW;
+    const rowH = 30, headH = 40, titleH = 54;
+    const H = titleH + headH + lines.length * rowH + 24;
+    const cv = document.createElement('canvas');
+    cv.width = W * S;
+    cv.height = H * S;
+    const cx = cv.getContext('2d');
+    cx.scale(S, S);
+    cx.fillStyle = '#ffffff';
+    cx.fillRect(0, 0, W, H);
+    // Titre + date, comme une capture de rapport.
+    cx.fillStyle = '#1d2233';
+    cx.font = 'bold 18px "Segoe UI", sans-serif';
+    const d = new Date();
+    cx.fillText(`Yélé — Comparatif (${state.netType === 'mobile' ? 'mobile' : 'fixe'}) — ${d.toLocaleDateString('fr-FR')}`, 20, 34);
+    // Bande d'en-têtes.
+    cx.fillStyle = '#f4f6f8';
+    cx.fillRect(0, titleH, W, headH);
+    cx.fillStyle = '#5d6478';
+    cx.font = 'bold 11px "Segoe UI", sans-serif';
+    cols.forEach((c, i) => cx.fillText(c.toUpperCase(), 20 + i * colW, titleH + 25));
+    cx.strokeStyle = '#dfe3ea';
+    cx.beginPath();
+    cx.moveTo(0, titleH + headH);
+    cx.lineTo(W, titleH + headH);
+    cx.stroke();
+    // Lignes, zébrées pour suivre l'œil.
+    cx.font = '12px "Segoe UI", sans-serif';
+    lines.forEach((r, ri) => {
+      const y = titleH + headH + ri * rowH;
+      if (ri % 2) { cx.fillStyle = '#fafbfd'; cx.fillRect(0, y, W, rowH); }
+      cx.fillStyle = '#2a3042';
+      r.forEach((v, i) => {
+        const text = v == null ? '—'
+          : typeof v === 'number' ? (Number.isInteger(v) ? String(v) : v.toFixed(1).replace('.', ','))
+          : String(v);
+        cx.fillText(text.slice(0, 24), 20 + i * colW, y + 19);
+      });
+    });
+    cv.toBlob((b) => b && downloadBlob(b, exportFileNames('png')), 'image/png');
+  });
+
   function refresh() {
     rows = aggregate();
     shown = PAGE_STEP;
     renderCompare();
     renderTable();
+    saveState(); // un seul point de sortie : chaque changement de filtre passe ici
   }
 
   /// Oblige la vue à tout relire au prochain affichage.

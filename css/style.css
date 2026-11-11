@@ -800,12 +800,17 @@ select.period-select option { background: var(--white); color: var(--text); }
 /* Grille des grains de période hors panneau carte : 6 boutons. */
 .op-period-grain { display: inline-grid; grid-template-columns: repeat(3, 1fr); }
 
-/* Bandeau au-dessus du tableau : nombre de groupes comparés + filtres actifs. */
+/* Bandeau au-dessus du tableau : nombre de groupes comparés + filtres actifs,
+   et les trois boutons d'export de la vue courante. */
 .op-table-head {
   display: flex; align-items: center; justify-content: space-between;
   gap: 10px; flex-wrap: wrap; margin-bottom: 8px;
 }
 .op-table-info { font-size: 11.5px; color: var(--text-soft); }
+.op-export { display: flex; gap: 6px; }
+.op-export-btn { padding: 5px 12px; font-size: 12px; font-weight: 700; }
+.op-empty-guided { text-align: center; padding: 26px 12px 22px; }
+.op-empty-guided .reset-btn { margin-top: 12px; }
 
 /* Pastilles qualité : valeur + étiquette, teinte par classe (vert/orange/rouge,
    croquis validé du 11/11). */
