@@ -380,9 +380,15 @@ const Operators = (() => {
     return new Date(y, m - 1, d).toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' });
   }
 
-  // ── Résumé grand public : une carte par opérateur ──────────────────────────
-  // Triées du plus rapide au plus lent, mêmes filtres que le tableau
-  // (opérateur, techno, réseau, période) — moyennes pondérées par test.
+  // ── Résumé grand public : classement des 3 premiers + classement global ────
+  // Croquis validé le 11/11 : les cartes gardent leur design (badge « Réseau
+  // le plus rapide » sur le 1ᵉʳ) avec le rang affiché en coin ; dessous, le
+  // classement global liste TOUS les opérateurs du 1ᵉʳ au dernier, top 3
+  // surligné. Tri sur le débit moyen ↓, mêmes filtres que le tableau —
+  // moyennes pondérées par test.
+  const RANKS = ['', '1ᵉʳ', '2ᵉ', '3ᵉ', '4ᵉ', '5ᵉ', '6ᵉ', '7ᵉ', '8ᵉ'];
+  const rankLabel = (i) => RANKS[i + 1] || (i + 1) + 'ᵉ';
+
   function renderCompare() {
     const pts = filtered();
     const byOp = {};
@@ -404,20 +410,28 @@ const Operators = (() => {
       .sort((a, b) => b.avgDl - a.avgDl);
 
     const wrap = document.getElementById('op-compare');
+    const globalBox = document.getElementById('op-global');
+    const globalTitle = document.querySelector('.op-global-title');
     if (!cards.length) {
       wrap.innerHTML = '<div class="op-card-empty">Aucune mesure pour ces filtres.</div>';
+      globalBox.hidden = true;
+      if (globalTitle) globalTitle.style.display = 'none';
     } else {
       const maxDl = Math.max(...cards.map((c) => c.avgDl), 1);
-      wrap.innerHTML = cards.map((c, i) => {
+      // Décimales à la française (« 22,1 »), comme sur la vue Statistiques.
+      const fr1 = (v) => v.toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+      // Podium : les 3 premiers, même carte qu'aujourd'hui + rang en coin.
+      wrap.innerHTML = cards.slice(0, 3).map((c, i) => {
         const lvl = qualityLevel({ download: c.avgDl }, 'debit');
         return `
           <div class="op-card${i === 0 && cards.length > 1 ? ' op-card-best' : ''}">
+            <div class="op-rank">${rankLabel(i)}</div>
             ${i === 0 && cards.length > 1 ? '<div class="op-best-badge">Réseau le plus rapide (débit moyen ↓)</div>' : ''}
             <div class="op-card-name">
               <span class="op-dot" style="background:${operatorColor(c.operator)}"></span>
               <span>${escapeHtml(c.operator)}</span>
             </div>
-            <div class="op-card-dl"><b>${c.avgDl.toFixed(1)}</b><small>Mb/s</small></div>
+            <div class="op-card-dl"><b>${fr1(c.avgDl)}</b><small>Mb/s</small></div>
             <div class="op-bar"><span class="op-bar-fill" style="width:${(c.avgDl / maxDl) * 100}%;background:${qualityColor(lvl)}"></span></div>
             <div class="op-card-stats">
               <div><b>${Math.round(c.avgPing)} ms</b><small>Latence</small></div>
@@ -425,6 +439,22 @@ const Operators = (() => {
             </div>
           </div>`;
       }).join('');
+
+      // Classement global : tous les opérateurs, du 1ᵉʳ au dernier.
+      globalBox.hidden = false;
+      if (globalTitle) globalTitle.style.display = '';
+      globalBox.innerHTML = `
+        <div class="op-global-head"><span class="op-global-rank">Rang</span><span class="op-global-name">Opérateur</span><span class="op-global-num">Débit ↓</span><span class="op-global-ms">Latence</span><span class="op-global-count">Tests</span></div>`
+        + cards.map((c, i) => `
+          <div class="op-global-row${i < 3 ? ' top' : ''}">
+            <span class="op-global-rank">${rankLabel(i)}</span>
+            <span class="op-global-name">
+              <span class="op-dot" style="background:${operatorColor(c.operator)}"></span>${escapeHtml(c.operator)}${i === 0 ? '<span class="op-global-medal">Le plus rapide ↓</span>' : ''}
+            </span>
+            <span class="op-global-num"><b>${fr1(c.avgDl)}</b> <small>Mb/s</small></span>
+            <span class="op-global-ms">${Math.round(c.avgPing)} ms</span>
+            <span class="op-global-count">${c.count.toLocaleString('fr-FR')}</span>
+          </div>`).join('');
     }
 
     document.getElementById('op-compare-sub').textContent = spanLabel(pts);

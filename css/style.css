@@ -776,12 +776,19 @@ select.period-select option { background: var(--white); color: var(--text); }
   grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
 }
 .op-card {
+  position: relative; /* le rang en coin de carte */
   background: var(--white); border-radius: var(--radius); box-shadow: var(--shadow);
   border-top: 3px solid var(--green);
   padding: 12px 16px 14px;
   display: flex; flex-direction: column; gap: 8px;
 }
 .op-card-best { border-top-color: var(--green); box-shadow: var(--shadow-lg); }
+.op-rank {
+  position: absolute; top: 9px; right: 12px;
+  font-size: 11px; font-weight: 800; font-variant-numeric: tabular-nums;
+  color: var(--text-soft); background: var(--row-alt); border-radius: 999px; padding: 3px 9px;
+}
+.op-card-best .op-rank { color: #fff; background: var(--green); }
 .op-best-badge {
   font-size: 10px; font-weight: 800; color: #fff; background: var(--green);
   padding: 3px 9px; border-radius: 999px; align-self: flex-start;
@@ -800,6 +807,42 @@ select.period-select option { background: var(--white); color: var(--text); }
 .op-card-stats small { font-size: 10.5px; }
 .op-card-empty { color: var(--text-soft); font-size: 13px; padding: 8px 0; }
 .op-compare-sub { font-size: 11.5px; color: var(--text-soft); margin-top: 8px; }
+
+/* Classement global : liste compacte de tous les opérateurs, du 1er au
+   dernier (croquis validé le 11/11). Les 3 premiers surlignés ; le 1er
+   porte la mention « Le plus rapide ↓ ». */
+.op-global-title { margin-top: 18px; }
+.op-global {
+  background: var(--white); border-radius: var(--radius); box-shadow: var(--shadow);
+  overflow: hidden; margin-top: 2px;
+}
+.op-global-head, .op-global-row { display: flex; align-items: center; gap: 10px; }
+.op-global-head {
+  padding: 7px 14px; background: var(--row-alt);
+  font-size: 10px; font-weight: 800; letter-spacing: .3px; text-transform: uppercase; color: var(--text-soft);
+}
+.op-global-row { padding: 9px 14px; border-top: 1px solid var(--border); font-size: 12.5px; }
+.op-global-row:nth-child(even) { background: var(--row-alt); }
+.op-global-row.top { background: var(--green-light); }
+.op-global-row.top:nth-child(even) { background: var(--green-light); }
+.op-global-rank { flex: none; width: 34px; font-weight: 800; color: var(--text-soft); font-variant-numeric: tabular-nums; }
+.op-global-row.top .op-global-rank { color: var(--green-dark); }
+.op-global-name { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; font-weight: 700; color: var(--navy); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.op-global-name .op-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none; }
+.op-global-medal {
+  flex: none; font-size: 10.5px; font-weight: 800; color: var(--green-dark);
+  background: color-mix(in srgb, var(--green) 12%, transparent); border-radius: 999px; padding: 2px 8px; margin-left: 8px;
+}
+.op-global-num { flex: none; width: 92px; text-align: right; font-variant-numeric: tabular-nums; }
+.op-global-num b { font-size: 13px; color: var(--navy); }
+.op-global-num small, .op-global-ms, .op-global-count { color: var(--text-soft); font-variant-numeric: tabular-nums; }
+.op-global-num small { font-size: 10px; display: block; text-align: right; }
+.op-global-ms { flex: none; width: 64px; text-align: right; }
+.op-global-count { flex: none; width: 58px; text-align: right; }
+@media (max-width: 560px) {
+  .op-global-ms, .op-global-count { display: none; }
+  .op-global-head .op-global-ms, .op-global-head .op-global-count { display: none; }
+}
 
 /* Carte de filtres : deux blocs (Réseau, Période) + bouton de réinitialisation,
    à la verticale sur petit écran, côte à côte au-dessus. */
