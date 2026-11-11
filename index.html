@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="assets/vendor/leaflet.css"/>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=9">
+  <link rel="stylesheet" href="css/style.css?v=10">
   <script>
     // Thème appliqué AVANT le premier rendu : évite le flash de mauvaise
     // couleur au chargement. Priorité : choix mémorisé → préférence système.
@@ -236,7 +236,7 @@
 <section class="view view-stats" id="view-stats">
   <div class="page-head">
     <h1>Statistiques</h1>
-    <p>Vue d'ensemble des mesures collectées par l'application mobile Yélé.</p>
+    <p>Vue d'ensemble de la qualité des réseaux : opérateurs ARCEP, technologies et périodes, calculées à partir des tests géolocalisés des utilisateurs Yélé. Survolez les graphes pour le détail, cliquez une tranche du donut pour ouvrir le Comparatif.</p>
   </div>
 
   <!-- Croquis v2 (11/11/2026) : 8 cartes — RSRP/RSRQ (base 4G/5G) et RSSI
@@ -259,12 +259,19 @@
           <h2>Évolution des tests</h2>
           <p class="card-sub">Barres = tests par jour · courbe = débit ↓ moyen. Survolez pour le détail d'une journée.</p>
         </div>
-        <div class="toggle-group" id="timeline-days">
-          <button class="toggle" data-days="7">7 j</button>
-          <button class="toggle active" data-days="30">30 j</button>
-          <button class="toggle" data-days="90">90 j</button>
-          <button class="toggle" data-days="182">6 mois</button>
-          <button class="toggle" data-days="365">1 an</button>
+        <div class="card-head-tools">
+          <div class="toggle-group" id="timeline-days">
+            <button class="toggle" data-days="7">7 j</button>
+            <button class="toggle active" data-days="30">30 j</button>
+            <button class="toggle" data-days="90">90 j</button>
+            <button class="toggle" data-days="182">6 mois</button>
+            <button class="toggle" data-days="365">1 an</button>
+          </div>
+          <div class="op-export">
+            <button class="btn-ghost op-export-btn" id="st-tl-export-csv" title="Série temporelle de la période affichée, séparateur point-virgule (Excel/LibreOffice)">⤓ CSV</button>
+            <button class="btn-ghost op-export-btn" id="st-tl-export-xlsx" title="Classeur Excel de la série temporelle affichée">⤓ XLSX</button>
+            <button class="btn-ghost op-export-btn" id="st-tl-export-png" title="Image du tableau (rapports, réseaux sociaux)">⤓ PNG</button>
+          </div>
         </div>
       </div>
       <div class="chart-wrap" id="tl-wrap"><canvas id="chart-timeline"></canvas></div>
@@ -273,7 +280,12 @@
       <div class="card-head">
         <div>
           <h2>Débit moyen par opérateur</h2>
-          <p class="card-sub">Libellés ARCEP, ONATEL fusionné avec Moov Africa SA. Survolez : tests, débits, latence et percentiles.</p>
+          <p class="card-sub">Libellés ARCEP, ONATEL fusionné avec Moov Africa SA. Survolez : tests, débits, latence.</p>
+        </div>
+        <div class="op-export">
+          <button class="btn-ghost op-export-btn" id="st-ops-export-csv" title="Moyennes par opérateur, séparateur point-virgule (Excel/LibreOffice)">⤓ CSV</button>
+          <button class="btn-ghost op-export-btn" id="st-ops-export-xlsx" title="Classeur Excel des moyennes par opérateur">⤓ XLSX</button>
+          <button class="btn-ghost op-export-btn" id="st-ops-export-png" title="Image du tableau (rapports, réseaux sociaux)">⤓ PNG</button>
         </div>
       </div>
       <div class="chart-wrap" id="ops-wrap"><canvas id="chart-operators"></canvas></div>
@@ -284,10 +296,14 @@
           <h2>Répartition par technologie</h2>
           <p class="card-sub">Tests géolocalisés. Survolez une tranche ; cliquez pour ouvrir le Comparatif filtré sur cette techno.</p>
         </div>
+        <div class="op-export">
+          <button class="btn-ghost op-export-btn" id="st-net-export-csv" title="Répartition par technologie, séparateur point-virgule (Excel/LibreOffice)">⤓ CSV</button>
+          <button class="btn-ghost op-export-btn" id="st-net-export-xlsx" title="Classeur Excel de la répartition par technologie">⤓ XLSX</button>
+          <button class="btn-ghost op-export-btn" id="st-net-export-png" title="Image du tableau (rapports, réseaux sociaux)">⤓ PNG</button>
+        </div>
       </div>
-      <div class="chart-wrap donut-wrap" id="net-wrap">
+      <div class="chart-wrap" id="net-wrap">
         <canvas id="chart-network"></canvas>
-        <div class="donut-center"><b id="net-total">·</b><small>tests géolocalisés</small></div>
       </div>
     </div>
     <div class="card chart-card wide">
@@ -295,6 +311,11 @@
         <div>
           <h2>Statistiques avancées par opérateur</h2>
           <p class="card-sub">Moyennes recalculées après fusion des libellés. RSRP/RSRQ : base 4G/5G · RSSI : base WiFi seulement.</p>
+        </div>
+        <div class="op-export">
+          <button class="btn-ghost op-export-btn" id="st-adv-export-csv" title="Tableau avancé, séparateur point-virgule (Excel/LibreOffice)">⤓ CSV</button>
+          <button class="btn-ghost op-export-btn" id="st-adv-export-xlsx" title="Classeur Excel du tableau avancé">⤓ XLSX</button>
+          <button class="btn-ghost op-export-btn" id="st-adv-export-png" title="Image du tableau (rapports, réseaux sociaux)">⤓ PNG</button>
         </div>
       </div>
       <div class="table-wrap">
@@ -319,7 +340,7 @@
 <section class="view view-history" id="view-history">
   <div class="page-head">
     <h1>Historique des tests</h1>
-    <p>Liste détaillée de toutes les mesures remontées par l'application mobile.</p>
+    <p>Tous les tests remontés par les utilisateurs Yélé. Filtrez par réseau, fournisseur et période, puis cliquez un lieu pour le retrouver sur la carte.</p>
   </div>
 
   <div class="card">
@@ -455,7 +476,7 @@
      privé le bouton thème de son handler). Monter v à chaque modif de JS. -->
 <script src="js/map.js?v=22"></script>
 <script src="js/operators.js?v=3"></script>
-<script src="js/stats.js?v=4"></script>
+<script src="js/stats.js?v=5"></script>
 <script src="js/history.js?v=2"></script>
 <script src="js/forecast.js?v=1"></script>
 <script src="js/ai.js?v=2"></script>

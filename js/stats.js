@@ -27,6 +27,7 @@ const Stats = (() => {
   let operatorsChart = null;
   let networkChart = null;
   let tlDays = 30;
+  let tlRows = [];    // série temporelle courante (période affichée) — exports
   let opsData = [];   // agrégat par opérateur (graphe + tableau)
   let netsData = [];  // agrégat par technologie (donut + clic)
 
@@ -49,6 +50,32 @@ const Stats = (() => {
   function donutBorderColor() {
     return getCss('--white') || '#ffffff';
   }
+
+  // Total au centre du donut, dessiné AU CENTRE DE L'ANNEAU (plugin Chart.js).
+  // Une superposition HTML serait centrée sur tout le bloc, légende comprise :
+  // le chiffre paraissait décalé dès que la légende n'était pas symétrique.
+  // Les couleurs lisent les variables CSS à chaque tracé : elles suivent le
+  // thème sans intervention.
+  const centerTextPlugin = {
+    id: 'statsCenterText',
+    afterDraw(chart) {
+      const meta = chart.getDatasetMeta(0);
+      if (!meta.data.length) return;
+      const el = meta.data[0];
+      const total = chart.data.datasets[0].data.reduce((s, v) => s + v, 0);
+      const ctx = chart.ctx;
+      ctx.save();
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = getCss('--navy') || '#1d2233';
+      ctx.font = `800 22px ${fontStack}`;
+      ctx.fillText(total.toLocaleString('fr-FR'), el.x, el.y - 8);
+      ctx.fillStyle = getCss('--text-soft') || '#5d6478';
+      ctx.font = `500 10.5px ${fontStack}`;
+      ctx.fillText('tests géolocalisés', el.x, el.y + 12);
+      ctx.restore();
+    },
+  };
 
   // Rebuild des graphiques déjà construits quand le thème change (l'objet
   // Chart ne relit pas Chart.defaults après construction).
@@ -115,33 +142,23 @@ const Stats = (() => {
     return points;
   }
 
-  // Percentile méthode « lower », identique au backend (vérifié 11/11).
-  function pct(sorted, q) {
-    if (!sorted.length) return 0;
-    return sorted[Math.min(Math.floor(q * (sorted.length - 1)), sorted.length - 1)];
-  }
-
-  // Un agrégat par opérateur : moyennes pondérées + percentiles du débit ↓
-  // (infobulle uniquement) + latence.
+  // Un agrégat par opérateur : moyennes pondérées par test + latence.
+  // (Les percentiles du débit ont été retirés du tableau ET de l'infobulle,
+  // décision du 11/11.)
   function aggregateOperators(points) {
     const byOp = {};
     points.forEach((p) => {
       const a = byOp[p.operator || 'Inconnu'] = byOp[p.operator || 'Inconnu']
-        || { n: 0, sDl: 0, sUl: 0, sPing: 0, dls: [] };
+        || { n: 0, sDl: 0, sUl: 0, sPing: 0 };
       a.n += 1;
       a.sDl += Number(p.download) || 0;
       a.sUl += Number(p.upload) || 0;
       a.sPing += Number(p.ping) || 0;
-      a.dls.push(Number(p.download) || 0);
     });
-    return Object.entries(byOp).map(([operator, a]) => {
-      a.dls.sort((x, y) => x - y);
-      return {
-        operator, n: a.n,
-        avgDl: a.sDl / a.n, avgUl: a.sUl / a.n, avgPing: a.sPing / a.n,
-        p25: pct(a.dls, .25), p50: pct(a.dls, .5), p75: pct(a.dls, .75), p90: pct(a.dls, .9),
-      };
-    }).sort((x, y) => y.avgDl - x.avgDl);
+    return Object.entries(byOp).map(([operator, a]) => ({
+      operator, n: a.n,
+      avgDl: a.sDl / a.n, avgUl: a.sUl / a.n, avgPing: a.sPing / a.n,
+    })).sort((x, y) => y.avgDl - x.avgDl);
   }
 
   // Un agrégat par technologie : effectif, part, débit moyen (donut).
@@ -181,6 +198,7 @@ const Stats = (() => {
     const wrap = document.getElementById('tl-wrap');
     try {
       const data = (await API.timeline(days)) || [];
+      tlRows = data;
       if (timelineChart) timelineChart.destroy();
       timelineChart = new Chart(document.getElementById('chart-timeline'), {
         data: {
@@ -256,17 +274,11 @@ const Stats = (() => {
                 label: (item) => item.datasetIndex === 0
                   ? `Download moyen : ${fmt1(item.parsed.y)} Mb/s`
                   : `Envoi moyen : ${fmt1(item.parsed.y)} Mb/s`,
-                // Latence + percentiles du débit ↓ (gardés sous le coude,
-                // décision 11/11 : le tableau ne les affiche plus).
+                // Latence du groupe (les percentiles ne sont plus affichés,
+                // décision du 11/11 : ni tableau ni infobulle).
                 footer: (items) => {
                   const o = opsData[items[0].dataIndex];
-                  if (!o) return '';
-                  return [
-                    `Latence moyenne : ${Math.round(o.avgPing)} ms`,
-                    '',
-                    `Débit ↓ — P25 : ${fmt1(o.p25)} · Médiane : ${fmt1(o.p50)}`,
-                    `P75 : ${fmt1(o.p75)} · P90 : ${fmt1(o.p90)} Mb/s`,
-                  ];
+                  return o ? [`Latence moyenne : ${Math.round(o.avgPing)} ms`] : '';
                 },
               },
             },
@@ -284,12 +296,10 @@ const Stats = (() => {
     const wrap = document.getElementById('net-wrap');
     try {
       netsData = aggregateNetworks(points);
-      const total = points.length;
-      const center = document.getElementById('net-total');
-      if (center) center.textContent = total.toLocaleString('fr-FR');
       if (networkChart) networkChart.destroy();
       networkChart = new Chart(document.getElementById('chart-network'), {
         type: 'doughnut',
+        plugins: [centerTextPlugin],
         data: {
           labels: netsData.map((t) => t.name),
           datasets: [{
@@ -311,7 +321,8 @@ const Stats = (() => {
                 title: (items) => netsData[items[0].dataIndex]?.name || '',
                 label: (item) => {
                   const t = netsData[item.dataIndex];
-                  const share = total ? Math.round((t.n / total) * 100) : 0;
+                  const grand = netsData.reduce((s, x) => s + x.n, 0);
+                  const share = grand ? Math.round((t.n / grand) * 100) : 0;
                   return `Tests : ${t.n.toLocaleString('fr-FR')} (${share} %)`;
                 },
                 afterBody: (items) => {
@@ -491,5 +502,234 @@ const Stats = (() => {
   function reset() {
     built = false;
   }
+
+  // ── Exports CSV / XLSX / PNG (validé 11/11 : un jeu par bloc) ───────────────
+  // Les mécaniques sont celles du Comparatif : CSV BOM + point-virgule,
+  // XLSX = zip de XML écrit à la main, PNG = tableau redessiné en 2x.
+  // Chaque bloc exporte SES données, dans la période/vue affichée.
+
+  function downloadBlob(blob, name) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // Archive ZIP minimale (entrées stockées, CRC32, répertoire central, EOCD) :
+  // un .xlsx est un zip de XML — pas besoin de librairie.
+  const CRC_TABLE = (() => {
+    const t = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      t[n] = c >>> 0;
+    }
+    return t;
+  })();
+
+  function crc32(bytes) {
+    let c = 0xFFFFFFFF;
+    for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+    return (c ^ 0xFFFFFFFF) >>> 0;
+  }
+
+  function zipStore(entries) {
+    const enc = new TextEncoder();
+    const chunks = [];
+    const central = [];
+    let offset = 0;
+    for (const [name, content] of entries) {
+      const nameBytes = enc.encode(name);
+      const data = enc.encode(content);
+      const crc = crc32(data);
+      const local = new DataView(new ArrayBuffer(30));
+      local.setUint32(0, 0x04034b50, true);
+      local.setUint16(4, 20, true);
+      local.setUint16(6, 0x0800, true);
+      local.setUint16(8, 0, true);
+      local.setUint16(10, 0, true);
+      local.setUint16(12, 0, true);
+      local.setUint32(14, crc, true);
+      local.setUint32(18, data.length, true);
+      local.setUint32(22, data.length, true);
+      local.setUint16(26, nameBytes.length, true);
+      local.setUint16(28, 0, true);
+      chunks.push(new Uint8Array(local.buffer), nameBytes, data);
+      central.push({ nameBytes, crc, size: data.length, offset });
+      offset += 30 + nameBytes.length + data.length;
+    }
+    const centralStart = offset;
+    let centralSize = 0;
+    for (const e of central) {
+      const cd = new DataView(new ArrayBuffer(46));
+      cd.setUint32(0, 0x02014b50, true);
+      cd.setUint16(4, 20, true);
+      cd.setUint16(6, 20, true);
+      cd.setUint16(8, 0x0800, true);
+      cd.setUint32(16, e.crc, true);
+      cd.setUint32(20, e.size, true);
+      cd.setUint32(24, e.size, true);
+      cd.setUint16(28, e.nameBytes.length, true);
+      cd.setUint32(42, e.offset, true);
+      chunks.push(new Uint8Array(cd.buffer), e.nameBytes);
+      centralSize += 46 + e.nameBytes.length;
+    }
+    const end = new DataView(new ArrayBuffer(22));
+    end.setUint32(0, 0x06054b50, true);
+    end.setUint16(8, central.length, true);
+    end.setUint16(10, central.length, true);
+    end.setUint32(12, centralSize, true);
+    end.setUint32(16, centralStart, true);
+    chunks.push(new Uint8Array(end.buffer));
+    return new Blob(chunks, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  }
+
+  // Tableau redessiné sur canvas (2x pour la netteté), comme une capture de
+  // rapport — même rendu que l'export PNG du Comparatif.
+  function pngBlob(title, cols, lines) {
+    const S = 2;
+    const colW = 150;
+    const W = 40 + cols.length * colW;
+    const rowH = 30, headH = 40, titleH = 54;
+    const H = titleH + headH + Math.max(lines.length, 1) * rowH + 24;
+    const cv = document.createElement('canvas');
+    cv.width = W * S;
+    cv.height = H * S;
+    const cx = cv.getContext('2d');
+    cx.scale(S, S);
+    cx.fillStyle = '#ffffff';
+    cx.fillRect(0, 0, W, H);
+    cx.fillStyle = '#1d2233';
+    cx.font = 'bold 18px "Segoe UI", sans-serif';
+    cx.fillText(`${title} — ${new Date().toLocaleDateString('fr-FR')}`, 20, 34);
+    cx.fillStyle = '#f4f6f8';
+    cx.fillRect(0, titleH, W, headH);
+    cx.fillStyle = '#5d6478';
+    cx.font = 'bold 11px "Segoe UI", sans-serif';
+    cols.forEach((c, i) => cx.fillText(c.toUpperCase(), 20 + i * colW, titleH + 25));
+    cx.strokeStyle = '#dfe3ea';
+    cx.beginPath();
+    cx.moveTo(0, titleH + headH);
+    cx.lineTo(W, titleH + headH);
+    cx.stroke();
+    cx.font = '12px "Segoe UI", sans-serif';
+    lines.forEach((r, ri) => {
+      const y = titleH + headH + ri * rowH;
+      if (ri % 2) { cx.fillStyle = '#fafbfd'; cx.fillRect(0, y, W, rowH); }
+      cx.fillStyle = '#2a3042';
+      r.forEach((v, i) => {
+        const text = v == null ? '—'
+          : typeof v === 'number' ? (Number.isInteger(v) ? String(v) : v.toFixed(1).replace('.', ','))
+          : String(v);
+        cx.fillText(text.slice(0, 24), 20 + i * colW, y + 19);
+      });
+    });
+    return new Promise((resolve) => cv.toBlob((b) => resolve(b), 'image/png'));
+  }
+
+  // Jeu de données de chaque bloc, tel qu'affiché à l'écran (null = vide).
+  function blockDataset(block) {
+    if (block === 'evolution') {
+      return tlRows.length
+        ? { cols: ['Date', 'Tests', 'Débit moyen (Mb/s)'], rows: tlRows.map((p) => [p.date, p.count, p.avgDownload]) }
+        : null;
+    }
+    if (block === 'operateurs') {
+      return opsData.length
+        ? { cols: ['Opérateur', 'Tests', 'Download moyen (Mb/s)', 'Envoi moyen (Mb/s)', 'Latence moyenne (ms)'],
+            rows: opsData.map((o) => [o.operator, o.n, o.avgDl, o.avgUl, Math.round(o.avgPing)]) }
+        : null;
+    }
+    if (block === 'technologies') {
+      const grand = netsData.reduce((s, t) => s + t.n, 0);
+      return grand
+        ? { cols: ['Technologie', 'Tests', 'Part (%)', 'Débit moyen (Mb/s)'],
+            rows: netsData.map((t) => [t.name, t.n, Math.round((t.n / grand) * 100), t.avgDl]) }
+        : null;
+    }
+    if (block === 'avance') {
+      // Signal exporté « — » (null) tant que l'API ne diffuse pas les mesures.
+      return opsData.length
+        ? { cols: ['Opérateur', 'Tests', 'Download moyen (Mb/s)', 'Envoi moyen (Mb/s)', 'RSRP moyen (dBm)', 'RSRQ moyen (dB)', 'RSSI moyen (dBm)', 'Latence moyenne (ms)'],
+            rows: opsData.map((o) => [o.operator, o.n, o.avgDl, o.avgUl, null, null, null, Math.round(o.avgPing)]) }
+        : null;
+    }
+    return null;
+  }
+
+  const BLOCK_LABELS = {
+    evolution: 'Évolution des tests', operateurs: 'Débit par opérateur',
+    technologies: 'Répartition par technologie', avance: 'Statistiques avancées',
+  };
+
+  function exportFileNames(block, ext) {
+    const d = new Date();
+    const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return `statistiques-${block}-${day}.${ext}`;
+  }
+
+  async function exportBlock(block, format) {
+    const ds = blockDataset(block);
+    if (!ds) { App.toast('Aucune donnée à exporter pour ce bloc.'); return; }
+    const fmt = (v) => v == null ? '—'
+      : typeof v === 'number' ? (Number.isInteger(v) ? String(v) : v.toFixed(1).replace('.', ','))
+      : String(v);
+    if (format === 'csv') {
+      // BOM UTF-8 + point-virgule : s'ouvre proprement dans Excel FR/LibreOffice.
+      const csv = '\uFEFF' + [ds.cols.join(';')]
+        .concat(ds.rows.map((r) => r.map(fmt).join(';')))
+        .join('\r\n');
+      downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8' }), exportFileNames(block, 'csv'));
+    } else if (format === 'xlsx') {
+      const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const cell = (v, r, c) => {
+        if (v == null) return `<c r="${r}${c}" t="inlineStr"><is><t>—</t></is></c>`;
+        if (typeof v === 'number') return `<c r="${r}${c}" t="n"><v>${v}</v></c>`;
+        return `<c r="${r}${c}" t="inlineStr"><is><t xml:space="preserve">${esc(v)}</t></is></c>`;
+      };
+      const sheetRows = [ds.cols.map((c, i) => cell(c, 1, i + 1)).join('')]
+        .concat(ds.rows.map((r, ri) => r.map((v, i) => cell(v, ri + 2, i + 1)).join('')))
+        .map((cells, ri) => `<row r="${ri + 1}">${cells}</row>`).join('');
+      const parts = [
+        ['[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+          + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+          + '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+          + '<Default Extension="xml" ContentType="application/xml"/>'
+          + '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+          + '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+          + '</Types>'],
+        ['_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+          + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+          + '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+          + '</Relationships>'],
+        ['xl/workbook.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+          + '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+          + 'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+          + `<sheets><sheet name="Statistiques" sheetId="1" r:id="rId1"/></sheets></workbook>`],
+        ['xl/_rels/workbook.xml.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+          + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+          + '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+          + '</Relationships>'],
+        ['xl/worksheets/sheet1.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+          + `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${sheetRows}</sheetData></worksheet>`],
+      ];
+      downloadBlob(zipStore(parts), exportFileNames(block, 'xlsx'));
+    } else {
+      const blob = await pngBlob(`Yélé — Statistiques — ${BLOCK_LABELS[block]}`, ds.cols, ds.rows);
+      if (blob) downloadBlob(blob, exportFileNames(block, 'png'));
+    }
+    App.toast(`${ds.rows.length.toLocaleString('fr-FR')} ligne${ds.rows.length > 1 ? 's' : ''} exportée${ds.rows.length > 1 ? 's' : ''} (CSV · XLSX · PNG).`);
+  }
+
+  // Les boutons d'export sont dans le HTML statique : liaison unique.
+  [['evolution', 'st-tl'], ['operateurs', 'st-ops'], ['technologies', 'st-net'], ['avance', 'st-adv']]
+    .forEach(([block, prefix]) => {
+      ['csv', 'xlsx', 'png'].forEach((fmt) => {
+        const btn = document.getElementById(`${prefix}-export-${fmt}`);
+        if (btn) btn.addEventListener('click', () => exportBlock(block, fmt));
+      });
+    });
   return { show, reset };
 })();
