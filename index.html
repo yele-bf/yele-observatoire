@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="assets/vendor/leaflet.css"/>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=8">
+  <link rel="stylesheet" href="css/style.css?v=9">
   <script>
     // Thème appliqué AVANT le premier rendu : évite le flash de mauvaise
     // couleur au chargement. Priorité : choix mémorisé → préférence système.
@@ -239,40 +239,74 @@
     <p>Vue d'ensemble des mesures collectées par l'application mobile Yélé.</p>
   </div>
 
-  <div class="kpi-grid">
-    <div class="kpi-card"><div class="kpi-value" id="kpi-total">·</div><div class="kpi-label">Tests réalisés</div></div>
-    <div class="kpi-card"><div class="kpi-value" id="kpi-today">·</div><div class="kpi-label">Tests aujourd'hui</div></div>
-    <div class="kpi-card"><div class="kpi-value" id="kpi-dl">·</div><div class="kpi-label">Débit ↓ moyen (Mbps)</div></div>
-    <div class="kpi-card"><div class="kpi-value" id="kpi-ul">·</div><div class="kpi-label">Débit ↑ moyen (Mbps)</div></div>
-    <div class="kpi-card"><div class="kpi-value" id="kpi-ping">·</div><div class="kpi-label">Ping moyen (ms)</div></div>
+  <!-- Croquis v2 (11/11/2026) : 8 cartes — RSRP/RSRQ (base 4G/5G) et RSSI
+       (base WiFi) restent « — » tant que l'API ne diffuse pas le signal. -->
+  <div class="kpi-grid" id="kpi-grid">
+    <div class="kpi-card"><div class="kpi-top"><span class="kpi-value" id="kpi-total">·</span></div><div class="kpi-label">Tests réalisés</div></div>
+    <div class="kpi-card"><div class="kpi-top"><span class="kpi-value" id="kpi-today">·</span></div><div class="kpi-label">Tests aujourd'hui</div></div>
+    <div class="kpi-card"><div class="kpi-top"><span class="kpi-value" id="kpi-dl">·</span><span class="qv" id="kpi-dl-pill" hidden></span></div><div class="kpi-label">Download moyen (Mb/s)</div></div>
+    <div class="kpi-card"><div class="kpi-top"><span class="kpi-value" id="kpi-ul">·</span><span class="qv" id="kpi-ul-pill" hidden></span></div><div class="kpi-label">Upload moyen (Mb/s)</div></div>
+    <div class="kpi-card"><div class="kpi-top"><span class="kpi-value" id="kpi-ping">·</span><span class="qv" id="kpi-ping-pill" hidden></span></div><div class="kpi-label">Latence moyenne (ms)</div></div>
+    <div class="kpi-card"><div class="kpi-top"><span class="kpi-value q-dash" id="kpi-rsrp" title="Puissance du signal 4G/5G, moyenne des tests cellulaires. Mesuré par l'app, pas encore diffusé par l'API (extension serveur à venir).">—</span></div><div class="kpi-label">RSRP moyen (dBm) — 4G/5G</div></div>
+    <div class="kpi-card"><div class="kpi-top"><span class="kpi-value q-dash" id="kpi-rsrq" title="Qualité du signal 4G/5G, moyenne des tests cellulaires. Mesuré par l'app, pas encore diffusé par l'API (extension serveur à venir).">—</span></div><div class="kpi-label">RSRQ moyen (dB) — 4G/5G</div></div>
+    <div class="kpi-card"><div class="kpi-top"><span class="kpi-value q-dash" id="kpi-rssi" title="Puissance du signal WiFi, moyenne des tests fixes. Mesuré par l'app, pas encore diffusé par l'API (extension serveur à venir).">—</span></div><div class="kpi-label">RSSI moyen (dBm) — WiFi</div></div>
   </div>
 
   <div class="charts-grid">
     <div class="card chart-card wide">
       <div class="card-head">
-        <h2>Évolution des tests</h2>
+        <div>
+          <h2>Évolution des tests</h2>
+          <p class="card-sub">Barres = tests par jour · courbe = débit ↓ moyen. Survolez pour le détail d'une journée.</p>
+        </div>
         <div class="toggle-group" id="timeline-days">
           <button class="toggle" data-days="7">7 j</button>
           <button class="toggle active" data-days="30">30 j</button>
           <button class="toggle" data-days="90">90 j</button>
+          <button class="toggle" data-days="182">6 mois</button>
+          <button class="toggle" data-days="365">1 an</button>
         </div>
       </div>
-      <div class="chart-wrap"><canvas id="chart-timeline"></canvas></div>
+      <div class="chart-wrap" id="tl-wrap"><canvas id="chart-timeline"></canvas></div>
     </div>
     <div class="card chart-card">
-      <div class="card-head"><h2>Débit moyen par opérateur</h2></div>
-      <div class="chart-wrap"><canvas id="chart-operators"></canvas></div>
+      <div class="card-head">
+        <div>
+          <h2>Débit moyen par opérateur</h2>
+          <p class="card-sub">Libellés ARCEP, ONATEL fusionné avec Moov Africa SA. Survolez : tests, débits, latence et percentiles.</p>
+        </div>
+      </div>
+      <div class="chart-wrap" id="ops-wrap"><canvas id="chart-operators"></canvas></div>
     </div>
     <div class="card chart-card">
-      <div class="card-head"><h2>Répartition par technologie</h2></div>
-      <div class="chart-wrap"><canvas id="chart-network"></canvas></div>
+      <div class="card-head">
+        <div>
+          <h2>Répartition par technologie</h2>
+          <p class="card-sub">Tests géolocalisés. Survolez une tranche ; cliquez pour ouvrir le Comparatif filtré sur cette techno.</p>
+        </div>
+      </div>
+      <div class="chart-wrap donut-wrap" id="net-wrap">
+        <canvas id="chart-network"></canvas>
+        <div class="donut-center"><b id="net-total">·</b><small>tests géolocalisés</small></div>
+      </div>
     </div>
     <div class="card chart-card wide">
-      <div class="card-head"><h2>Statistiques avancées par opérateur (percentiles du débit ↓)</h2></div>
+      <div class="card-head">
+        <div>
+          <h2>Statistiques avancées par opérateur</h2>
+          <p class="card-sub">Moyennes recalculées après fusion des libellés. RSRP/RSRQ : base 4G/5G · RSSI : base WiFi seulement.</p>
+        </div>
+      </div>
       <div class="table-wrap">
         <table class="data-table" id="advanced-table">
           <thead><tr>
-            <th>Opérateur</th><th>Tests</th><th>Moyenne</th><th>P25</th><th>Médiane</th><th>P75</th><th>P90</th><th>↑ Moyen</th><th>Ping méd.</th>
+            <th>Opérateur</th><th class="num">Tests</th>
+            <th class="num" title="Vitesse de réception moyenne. Plus haut = mieux.">Download moyen (Mb/s)</th>
+            <th class="num" title="Vitesse d'émission moyenne. Plus haut = mieux.">Envoi moyen (Mb/s)</th>
+            <th class="num" title="Puissance du signal 4G/5G (dBm), moyenne des tests cellulaires. Plus proche de 0 = mieux. Mesuré par l'app, pas encore diffusé par l'API.">RSRP moyen (dBm)</th>
+            <th class="num" title="Qualité du signal 4G/5G (dB), moyenne des tests cellulaires. Plus proche de 0 = mieux. Mesuré par l'app, pas encore diffusé par l'API.">RSRQ moyen (dB)</th>
+            <th class="num" title="Puissance du signal WiFi (dBm), moyenne des tests fixes de l'opérateur. Plus proche de 0 = mieux. Mesuré par l'app, pas encore diffusé par l'API.">RSSI moyen (dBm)</th>
+            <th class="num" title="Temps de réponse moyen du réseau. Plus bas = mieux.">Latence moyenne (ms)</th>
           </tr></thead>
           <tbody></tbody>
         </table>
@@ -421,7 +455,7 @@
      privé le bouton thème de son handler). Monter v à chaque modif de JS. -->
 <script src="js/map.js?v=22"></script>
 <script src="js/operators.js?v=3"></script>
-<script src="js/stats.js?v=2"></script>
+<script src="js/stats.js?v=3"></script>
 <script src="js/history.js?v=2"></script>
 <script src="js/forecast.js?v=1"></script>
 <script src="js/ai.js?v=2"></script>
