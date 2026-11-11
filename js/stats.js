@@ -326,10 +326,13 @@ const Stats = (() => {
       // Clic sur une tranche : écouteur natif sur le canvas (l'option onClick
       // de Chart.js 4 ne reçoit pas fiablement les clics ; le mode « nearest »
       // interroge le graphe quel que soit l'origine de l'événement).
+      // useFinalPosition = true : même pendant l'animation d'apparition (ou
+      // si elle est gelée par un onglet en arrière-plan), le clic atteint la
+      // tranche à sa position finale.
       const cv = document.getElementById('chart-network');
       cv.onclick = (evt) => {
         if (!networkChart) return;
-        const els = networkChart.getElementsAtEventForMode(evt, 'nearest', { intersect: true }, false);
+        const els = networkChart.getElementsAtEventForMode(evt, 'nearest', { intersect: true }, true);
         if (els.length) openComparatif(netsData[els[0].index]);
       };
     } catch (e) {
