@@ -773,8 +773,8 @@ const MapView = (() => {
     });
 
     // « Non précisé » est un regroupement d'affichage : aucune mesure ne porte
-    // ce libellé en base, le proposer au filtre serveur ne ramènerait rien.
-    History.setNetworks(techs.filter((t) => t !== NETWORK_UNKNOWN));
+    // ce libellé en base ; la vue Historique construit désormais ses propres
+    // listes de fournisseurs côté client, plus rien à alimenter ici.
   }
 
   // ── Rendu ───────────────────────────────────────────────────────────────────
