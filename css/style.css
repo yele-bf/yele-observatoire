@@ -678,13 +678,8 @@ select.period-select option { background: var(--white); color: var(--text); }
 /* Sous-titre de bloc (indications de survol, notes de périmètre). */
 .card-sub { font-size: 11px; font-weight: 500; color: var(--text-soft); margin: 3px 0 0; }
 
-/* Total au centre du donut (superposition, la souris passe aux tranches). */
-.donut-center {
-  position: absolute; inset: 0; pointer-events: none;
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-}
-.donut-center b { font-size: 22px; font-weight: 800; color: var(--navy); }
-.donut-center small { font-size: 10.5px; color: var(--text-soft); }
+/* Outils de droite d'un en-tête de bloc : périodes + exports alignés. */
+.card-head-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
 
 /* État d'erreur par bloc (croquis v2-E) : chaque bloc annonce sa panne et
    propose de réessayer, au lieu de rester muet sur un graphe vide. */
