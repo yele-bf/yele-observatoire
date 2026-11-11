@@ -670,6 +670,31 @@ select.period-select option { background: var(--white); color: var(--text); }
 }
 .kpi-value { font-size: 22px; font-weight: 800; color: var(--navy); }
 .kpi-label { font-size: 11px; color: var(--text-soft); margin-top: 2px; }
+/* Valeur + pastille qualité sur la même ligne (croquis v2 : pastilles sur KPIs). */
+.kpi-top { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.kpi-top .qv { font-size: 10.5px; min-width: 0; padding: 2px 8px 3px; }
+.kpi-top .q-dash { font-size: 22px; }
+
+/* Sous-titre de bloc (indications de survol, notes de périmètre). */
+.card-sub { font-size: 11px; font-weight: 500; color: var(--text-soft); margin: 3px 0 0; }
+
+/* Total au centre du donut (superposition, la souris passe aux tranches). */
+.donut-center {
+  position: absolute; inset: 0; pointer-events: none;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.donut-center b { font-size: 22px; font-weight: 800; color: var(--navy); }
+.donut-center small { font-size: 10.5px; color: var(--text-soft); }
+
+/* État d'erreur par bloc (croquis v2-E) : chaque bloc annonce sa panne et
+   propose de réessayer, au lieu de rester muet sur un graphe vide. */
+.stats-err { text-align: center; padding: 44px 12px; color: var(--text-soft); font-size: 13px; }
+.stats-err small { display: block; font-size: 11px; margin: 2px 0 12px; }
+.stats-err button {
+  padding: 8px 16px; font-size: 12.5px; font-weight: 700; color: #fff;
+  background: var(--green); border: none; border-radius: 9px; cursor: pointer;
+}
+.kpi-grid .stats-err { grid-column: 1 / -1; }
 
 .charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
 .card {
