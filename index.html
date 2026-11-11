@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="assets/vendor/leaflet.css"/>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=10">
+  <link rel="stylesheet" href="css/style.css?v=11">
   <script>
     // Thème appliqué AVANT le premier rendu : évite le flash de mauvaise
     // couleur au chargement. Priorité : choix mémorisé → préférence système.
@@ -169,9 +169,11 @@
   </div>
 
   <div class="op-compare-wrap">
-    <div class="op-section-title">Résumé</div>
+    <div class="op-section-title">Classement des 3 premiers</div>
     <div class="op-compare" id="op-compare"></div>
     <div class="op-compare-sub" id="op-compare-sub">Chargement…</div>
+    <div class="op-section-title op-global-title">Classement global</div>
+    <div class="op-global" id="op-global" hidden></div>
   </div>
 
   <div class="card">
@@ -475,7 +477,7 @@
      n'envoie aucun en-tête no-cache, et un ancien js/app.js en cache avait
      privé le bouton thème de son handler). Monter v à chaque modif de JS. -->
 <script src="js/map.js?v=22"></script>
-<script src="js/operators.js?v=3"></script>
+<script src="js/operators.js?v=4"></script>
 <script src="js/stats.js?v=5"></script>
 <script src="js/history.js?v=2"></script>
 <script src="js/forecast.js?v=1"></script>
