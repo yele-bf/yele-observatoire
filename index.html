@@ -346,29 +346,59 @@
   </div>
 
   <div class="card">
-    <div class="history-filters">
-      <select id="hf-operator"><option value="">Tous les opérateurs</option></select>
-      <select id="hf-network"><option value="">Toutes les technologies</option></select>
-      <label>Du <input type="date" id="hf-from"></label>
-      <label>Au <input type="date" id="hf-to"></label>
-      <button class="btn-primary" id="hf-apply">Filtrer</button>
-      <button class="btn-ghost" id="hf-reset">Réinitialiser</button>
-      <span class="filters-spacer"></span>
-      <button class="btn-ghost" id="hf-csv" title="Exporter les mesures filtrées au format CSV">Exporter CSV</button>
-      <button class="btn-ghost" id="hf-json" title="Exporter les mesures filtrées au format JSON">Exporter JSON</button>
+    <div class="op-filters">
+      <div class="op-filter-block">
+        <div class="op-filter-label">Réseau</div>
+        <div class="toggle-group" id="hi-net-type">
+          <button class="toggle active" data-net="mobile">Mobile</button>
+          <button class="toggle" data-net="fixe">Fixe</button>
+        </div>
+        <select class="period-select" id="hi-filter-supplier">
+          <option value="__all__">Tous les fournisseurs</option>
+        </select>
+        <div id="hi-tech-zone">
+          <div class="op-filter-label" style="margin-top:12px">Technologie</div>
+          <div class="op-chips" id="hi-tech-chips"></div>
+        </div>
+      </div>
+
+      <div class="op-filter-block">
+        <div class="op-filter-label">Période</div>
+        <div class="toggle-group" id="hi-period-grain">
+          <button class="toggle active" data-grain="all">Tout</button>
+          <button class="toggle" data-grain="hour">Heures</button>
+          <button class="toggle" data-grain="day">Jours</button>
+          <button class="toggle" data-grain="week">Semaines</button>
+          <button class="toggle" data-grain="month">Mois</button>
+          <button class="toggle" data-grain="year">Années</button>
+        </div>
+        <select class="period-select" id="hi-period-value" style="display:none"></select>
+        <div id="hi-period-badges" class="period-badges" hidden></div>
+      </div>
+
+      <div class="op-filter-block op-filter-reset">
+        <button class="btn-primary reset-btn" id="hi-reset" type="button">↺ Réinitialiser les filtres</button>
+      </div>
     </div>
+
+    <div class="op-table-head">
+      <span class="op-table-info" id="hi-table-info"></span>
+      <div class="op-export">
+        <button class="btn-ghost op-export-btn" id="hi-export-csv" title="Vue filtrée courante, séparateur point-virgule (Excel/LibreOffice)">⤓ CSV</button>
+        <button class="btn-ghost op-export-btn" id="hi-export-xlsx" title="Classeur Excel de la vue filtrée courante">⤓ XLSX</button>
+        <button class="btn-ghost op-export-btn" id="hi-export-png" title="Image du tableau (rapports, réseaux sociaux)">⤓ PNG</button>
+      </div>
+    </div>
+
     <div class="table-wrap">
       <table class="data-table" id="history-table">
-        <thead><tr>
-          <th>Date</th><th>FAI</th><th>Réseau mobile</th><th>Réseau</th><th>Signal</th><th>↓ Mbps</th><th>↓ pointe</th><th>↑ Mbps</th><th>↑ pointe</th><th>Ping</th><th>Ping min</th><th>Jitter</th><th>Streaming</th><th>Nav. web</th><th>Lieu</th><th>Appareil</th><th>Qualité</th>
-        </tr></thead>
+        <thead></thead>
         <tbody></tbody>
       </table>
     </div>
-    <div class="pagination">
-      <button class="btn-ghost" id="hp-prev">‹ Précédent</button>
-      <span id="hp-info">·</span>
-      <button class="btn-ghost" id="hp-next">Suivant ›</button>
+    <div class="pagination" id="hi-more-wrap" style="display:none">
+      <span id="hi-more-info">·</span>
+      <button class="btn-ghost" id="hi-more">Afficher plus</button>
     </div>
   </div>
 </section>
@@ -476,10 +506,10 @@
 <!-- ?v= : invalide le cache navigateur à chaque montée de version (Live Server
      n'envoie aucun en-tête no-cache, et un ancien js/app.js en cache avait
      privé le bouton thème de son handler). Monter v à chaque modif de JS. -->
-<script src="js/map.js?v=22"></script>
+<script src="js/map.js?v=23"></script>
 <script src="js/operators.js?v=4"></script>
 <script src="js/stats.js?v=5"></script>
-<script src="js/history.js?v=2"></script>
+<script src="js/history.js?v=3"></script>
 <script src="js/forecast.js?v=1"></script>
 <script src="js/ai.js?v=2"></script>
 <script src="js/app.js?v=2"></script>
