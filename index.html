@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="assets/vendor/leaflet.css"/>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=7">
+  <link rel="stylesheet" href="css/style.css?v=8">
   <script>
     // Thème appliqué AVANT le premier rendu : évite le flash de mauvaise
     // couleur au chargement. Priorité : choix mémorisé → préférence système.
@@ -36,7 +36,7 @@
 
   <nav class="topnav">
     <button class="topnav-item active" data-view="map">Carte</button>
-    <button class="topnav-item" data-view="operators">Opérateurs</button>
+    <button class="topnav-item" data-view="operators">Comparatif</button>
     <button class="topnav-item" data-view="stats">Statistiques</button>
     <button class="topnav-item" data-view="history">Historique des tests</button>
     <button class="topnav-item" data-view="forecast">Prévision</button>
@@ -159,13 +159,13 @@
   </button>
 </section>
 
-<!-- ─── Vue Opérateurs ──────────────────────────────────────────────────────── -->
+<!-- ─── Vue Comparatif (ex Opérateurs) ─────────────────────────────────────── -->
 <section class="view view-operators" id="view-operators">
   <div class="page-head">
-    <h1>Opérateurs</h1>
-    <p>Quel réseau est le plus rapide, où, et quand ? Comparez Orange BF, Telecel Faso
-       et Moov Africa à partir des tests des utilisateurs Yélé, puis cliquez un lieu
-       pour le retrouver sur la carte.</p>
+    <h1>Comparatif</h1>
+    <p>Quel réseau est le plus rapide, où, et quand ? Comparez Orange BF, Telecel Faso,
+       Moov Africa et les fournisseurs d'accès fixe à partir des tests des utilisateurs
+       Yélé, puis cliquez un lieu pour le retrouver sur la carte.</p>
   </div>
 
   <div class="op-compare-wrap">
@@ -175,27 +175,48 @@
   </div>
 
   <div class="card">
-    <div class="history-filters">
-      <div class="toggle-group" id="op-grain">
-        <button class="toggle active" data-grain="day">Par jour</button>
-        <button class="toggle" data-grain="week">Par semaine</button>
-        <button class="toggle" data-grain="all">Toutes dates</button>
+    <div class="op-filters">
+      <div class="op-filter-block">
+        <div class="op-filter-label">Réseau</div>
+        <div class="toggle-group" id="op-net-type">
+          <button class="toggle active" data-net="mobile">Mobile</button>
+          <button class="toggle" data-net="fixe">Fixe</button>
+        </div>
+        <select class="period-select" id="op-filter-operator">
+          <option value="__all__">Tous les opérateurs</option>
+        </select>
+        <div id="op-tech-zone">
+          <div class="op-filter-label" style="margin-top:12px">Technologie</div>
+          <div class="op-chips" id="op-tech-chips"></div>
+        </div>
       </div>
-      <select id="op-filter-operator"><option value="">Tous les opérateurs</option></select>
-      <select id="op-filter-tech"><option value="">Toutes les technologies</option></select>
+
+      <div class="op-filter-block">
+        <div class="op-filter-label">Période</div>
+        <div class="toggle-group op-period-grain" id="op-period-grain">
+          <button class="toggle active" data-grain="all">Tout</button>
+          <button class="toggle" data-grain="hour">Heures</button>
+          <button class="toggle" data-grain="day">Jours</button>
+          <button class="toggle" data-grain="week">Semaines</button>
+          <button class="toggle" data-grain="month">Mois</button>
+          <button class="toggle" data-grain="year">Années</button>
+        </div>
+        <select class="period-select" id="op-period-value" style="display:none"></select>
+        <div id="op-period-badges" class="period-badges" hidden></div>
+      </div>
+
+      <div class="op-filter-block op-filter-reset">
+        <button class="btn-primary reset-btn" id="op-reset" type="button">↺ Réinitialiser les filtres</button>
+      </div>
     </div>
+
+    <div class="op-table-head">
+      <span class="op-table-info" id="op-table-info"></span>
+    </div>
+
     <div class="table-wrap">
-      <table class="data-table sortable" id="operators-table">
-        <thead><tr>
-          <th data-sort="periodKey">Période</th>
-          <th data-sort="operator">Opérateur</th>
-          <th class="num" data-sort="count">Tests</th>
-          <th class="num" data-sort="avgDl" title="Vitesse de réception moyenne. Plus haut = mieux.">Téléchargement (Mb/s)</th>
-          <th class="num" data-sort="avgUl" title="Vitesse d'émission moyenne. Plus haut = mieux.">Envoi (Mb/s)</th>
-          <th class="num" data-sort="avgPing" title="Temps de réponse du réseau. Plus bas = mieux.">Réactivité (ms)</th>
-          <th title="Technologie la plus représentée dans le groupe.">Réseau</th>
-          <th data-sort="location" title="Cliquez un lieu pour l'ouvrir sur la carte.">Lieu</th>
-        </tr></thead>
+      <table class="data-table" id="operators-table">
+        <thead></thead>
         <tbody></tbody>
       </table>
     </div>
@@ -394,7 +415,7 @@
      n'envoie aucun en-tête no-cache, et un ancien js/app.js en cache avait
      privé le bouton thème de son handler). Monter v à chaque modif de JS. -->
 <script src="js/map.js?v=22"></script>
-<script src="js/operators.js?v=2"></script>
+<script src="js/operators.js?v=3"></script>
 <script src="js/stats.js?v=2"></script>
 <script src="js/history.js?v=2"></script>
 <script src="js/forecast.js?v=1"></script>

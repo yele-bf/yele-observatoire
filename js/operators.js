@@ -1,44 +1,103 @@
-// ─── Vue Opérateurs : tableau comparatif période × opérateur × lieu ──────────
-// Agrège côté client les points de /api/dashboard/map. Chaque ligne regroupe
-// les tests d'un opérateur, sur une période (jour / semaine / tout) et en un
-// lieu donné, et affiche les débits moyens mesurés.
+// ─── Vue Comparatif (ex « Opérateurs ») ─────────────────────────────────────
+// Page grand public « quel réseau est le plus rapide, où, et quand ? ».
+// Filtres validés (croquis v4, 11/11/2026) :
+//   - Réseau Mobile/Fixe : Mobile = les 3 opérateurs ARCEP + chips techno
+//     (Toutes/2G/3G/4G/5G, pas de WiFi) ; Fixe = FAI dynamiques, techno masquée ;
+//   - Période Carte-style : grain (Tout/Heures/…/Années) + valeur + badges
+//     cumulables retirables, cascade CHILDREN qui purge les grains fins ;
+//   - La période est un FILTRE (comme sur la carte), jamais un regroupement :
+//     le tableau regroupe par jour (× opérateur × lieu), et par heure quand le
+//     grain « Heures » est choisi ;
+//   - Colonnes avec mesures signal (RSRP/RSRQ en mobile, RSSI en fixe) : l'app
+//     collecte déjà ces valeurs mais l'API ne les diffuse pas encore
+//     (/api/dashboard/map) → affichées « — » avec infobulle explicative ;
+//   - Ligne dépliable : les tests bruts du groupe (heure, débits, latence).
+// Agrège côté client les points de /api/dashboard/map (Map.getPoints()).
 
 const Operators = (() => {
   const PAGE_STEP = 100;
 
   let built = false;
   let points = [];
-  let rows = [];            // lignes agrégées, avant tri
+  let rows = [];            // lignes agrégées, triées
   let shown = PAGE_STEP;    // nombre de lignes affichées
+  let expandedKey = null;   // groupe dont les tests bruts sont dépliés
 
   const state = {
-    grain: 'day',           // day | week | all
-    operator: '',           // '' = tous
-    tech: '',               // '' = toutes
-    sort: 'periodKey',
-    dir: 'desc',
+    netType: 'mobile',      // mobile | fixe
+    operator: '__all__',    // '__all__' = tous (défaut, comme la carte)
+    tech: '',               // '' = toutes (chips, mobile seulement)
+    period: { grain: 'all', values: {} },
   };
 
-  // Colonnes triables : clé de tri + type (texte ou nombre).
-  const SORTABLE = {
-    periodKey: 'text', operator: 'text', count: 'num',
-    avgDl: 'num', avgUl: 'num', avgPing: 'num', location: 'text',
+  // Cascade des grains : choisir une valeur à un niveau purge les grains PLUS
+  // FINS (choisir 2025 ne peut pas laisser un mois de 2024 actif). Identique
+  // à la carte (map.js).
+  const CHILDREN = {
+    year: ['month', 'week', 'day', 'hour'],
+    month: ['week', 'day', 'hour'],
+    week: ['day', 'hour'],
+    day: ['hour'],
+    hour: [],
   };
 
-  // ── Chargement ──────────────────────────────────────────────────────────────
+  // ── Classification et dates ────────────────────────────────────────────────
+  // Réplique locale de isCellularTest (map.js) : la carte est une IIFE, la
+  // fonction n'est pas exportée — et le critère est une ligne stable.
+  function isCellularTest(p) {
+    return /^[2345]G\+?$/.test(String(p.networkType || '').trim());
+  }
+
+  // Valeur brute d'un point pour un grain donné (null si date invalide).
+  function grainValue(p, grain) {
+    const d = parseTs(p.timestamp);
+    if (isNaN(d)) return null;
+    if (grain === 'hour') return d.getHours();
+    if (grain === 'day') return dayKey(d);
+    if (grain === 'week') return weekStartKey(d);
+    if (grain === 'month') return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    if (grain === 'year') return String(d.getFullYear());
+    return null;
+  }
+
+  function grainValueLabel(grain, value) {
+    if (grain === 'hour') return `${value} h`;
+    if (grain === 'day') {
+      const [y, m, d] = String(value).split('-').map(Number);
+      return new Date(y, m - 1, d).toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' });
+    }
+    if (grain === 'week') return weekLabel(value);
+    if (grain === 'month') {
+      const [y, m] = String(value).split('-').map(Number);
+      return new Date(y, m - 1).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+    }
+    return String(value);
+  }
+
+  // Un point passe-t-il TOUS les filtres de période actifs (cumulés) ?
+  // `skipGrain` sert à lister les options d'un select sans s'auto-filtrer.
+  function timeMatch(p, skipGrain = null) {
+    const values = state.period.values || {};
+    for (const g of Object.keys(values)) {
+      if (g === skipGrain) continue;
+      const v = grainValue(p, g);
+      if (v == null || String(v) !== String(values[g])) return false;
+    }
+    return true;
+  }
+
+  // ── Chargement ─────────────────────────────────────────────────────────────
 
   async function show() {
     if (built) return;
     built = true;
 
     const tbody = document.querySelector('#operators-table tbody');
-    tbody.innerHTML = '<tr><td colspan="8" style="color:#5d6478">Chargement…</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" class="op-empty">Chargement…</td></tr>';
 
     points = MapView.getPoints();
     if (!points.length) {
       // Repli : la carte n'a pas encore chargé (lien profond ?view=operators).
-      // Il faut normaliser ici aussi, sans quoi les noms abîmés réapparaissent
-      // — ONATEL scindé en deux, technologies parasites.
       try {
         points = (await API.mapPoints() || []).map((p) => ({
           ...p,
@@ -46,7 +105,7 @@ const Operators = (() => {
           networkType: normalizeNetwork(p.networkType),
         }));
       } catch (e) {
-        tbody.innerHTML = `<tr><td colspan="8" style="color:#e0492f">Erreur : ${escapeHtml(e.message)}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="10" class="op-empty">Erreur : ${escapeHtml(e.message)}</td></tr>`;
         return;
       }
     }
@@ -56,53 +115,171 @@ const Operators = (() => {
     refresh();
   }
 
-  // ── Filtres ─────────────────────────────────────────────────────────────────
+  // ── Filtres ────────────────────────────────────────────────────────────────
 
   function buildFilters() {
-    const operators = [...new Set(points.map((p) => p.operator || 'Inconnu'))].sort();
-    const opSel = document.getElementById('op-filter-operator');
-    opSel.length = 1;
-    operators.forEach((o) => opSel.add(new Option(o, o)));
-
-    const techs = [...new Set(points.map((p) => p.networkType).filter(Boolean))].sort();
-    const techSel = document.getElementById('op-filter-tech');
-    techSel.length = 1;
-    techs.forEach((t) => techSel.add(new Option(t, t)));
+    buildOperatorSelect();
+    buildTechChips();
+    updateTechVisibility();
+    populatePeriodValues();
   }
 
-  function filtered() {
-    return points.filter((p) =>
-      (!state.operator || (p.operator || 'Inconnu') === state.operator) &&
-      (!state.tech || p.networkType === state.tech));
+  function filtered(skipGrain = null) {
+    const mobile = state.netType === 'mobile';
+    return points.filter((p) => {
+      // Mobile = tests cellulaires (2G-5G), Fixe = le reste (WiFi…).
+      if (mobile ? !isCellularTest(p) : isCellularTest(p)) return false;
+      if (state.operator !== '__all__' && (p.operator || 'Inconnu') !== state.operator) return false;
+      if (mobile && state.tech && (p.networkType || '') !== state.tech) return false;
+      return timeMatch(p, skipGrain);
+    });
   }
 
-  // ── Agrégation ──────────────────────────────────────────────────────────────
+  // Sélecteur d'opérateur / FAI, fidèle à la carte : Mobile = liste FIXE des
+  // 3 opérateurs ARCEP (toujours proposés, compte « (aucun test) ») + any
+  // opérateur cellulaire non canonique présent en base ; Fixe = liste
+  // DYNAMIQUE des FAI vus dans les tests non cellulaires.
+  function buildOperatorSelect() {
+    const sel = document.getElementById('op-filter-operator');
+    const counts = {};
+    points.forEach((p) => {
+      if (state.netType === 'mobile' ? isCellularTest(p) : !isCellularTest(p)) {
+        const op = p.operator || 'Inconnu';
+        counts[op] = (counts[op] || 0) + 1;
+      }
+    });
 
-  // Clé + libellé de la période d'un point selon la granularité choisie.
-  function periodOf(p) {
-    if (state.grain === 'all') return { key: '', label: 'Toutes dates' };
-    const d = parseTs(p.timestamp);
-    if (isNaN(d)) return { key: '', label: 'Date inconnue' };
-    if (state.grain === 'week') {
-      const key = weekStartKey(d);
-      return { key, label: weekLabel(key) };
+    let entries;
+    if (state.netType === 'mobile') {
+      entries = MOBILE_OPERATORS.map((op) => ({ op, n: counts[op] || 0 }));
+      Object.keys(counts)
+        .filter((op) => !MOBILE_OPERATORS.includes(op) && op !== 'Inconnu')
+        .filter((op) => points.some((q) => (q.operator || '') === op && isCellularTest(q)))
+        .forEach((op) => entries.push({ op, n: counts[op] }));
+    } else {
+      entries = Object.keys(counts).sort((a, b) => counts[b] - counts[a])
+        .map((op) => ({ op, n: counts[op] }));
     }
-    return {
-      key: dayKey(d),
-      label: d.toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' }),
-    };
+
+    const header = state.netType === 'fixe'
+      ? `<option value="__all__">Tous les fournisseurs</option>`
+      : `<option value="__all__">Tous les opérateurs</option>`;
+    sel.innerHTML = header + entries.map((e) => {
+      const canonical = MOBILE_OPERATORS.includes(e.op) || state.netType === 'mobile';
+      const short = e.op === 'Inconnu' ? 'Inconnu' : canonical ? e.op : operatorShortLabel(e.op);
+      return `<option value="${escapeHtml(e.op)}">${escapeHtml(short)}${e.n ? ` (${e.n})` : ' (aucun test)'}</option>`;
+    }).join('');
+    sel.value = state.operator;
   }
 
-  // Une ligne = (période, opérateur, lieu). Les tests sans `location` sont
-  // regroupés sous « Lieu non précisé » plutôt que d'être écartés.
+  // Chips techno : Mobile seulement (Toutes/2G/3G/4G/5G — pas de WiFi, les
+  // tests WiFi relèvent du réseau Fixe). Masqué en Fixe (croquis v1).
+  function buildTechChips() {
+    const chips = document.getElementById('op-tech-chips');
+    const techs = ['Toutes', '2G', '3G', '4G', '5G'];
+    chips.innerHTML = techs.map((t) =>
+      `<button class="chip${t === 'Toutes' ? ' active' : ''}" data-tech="${t === 'Toutes' ? '' : t}">${t}</button>`).join('');
+    chips.querySelectorAll('.chip').forEach((chip) => {
+      chip.addEventListener('click', () => {
+        chips.querySelectorAll('.chip').forEach((c) => c.classList.remove('active'));
+        chip.classList.add('active');
+        state.tech = chip.dataset.tech;
+        refresh();
+      });
+    });
+  }
+
+  function updateTechVisibility() {
+    document.getElementById('op-tech-zone').style.display = state.netType === 'mobile' ? '' : 'none';
+  }
+
+  // ── Période (grain + valeur + badges cumulables) ───────────────────────────
+  // Mêmes mécaniques que la carte : les options du select de valeur ne
+  // proposent que ce que les AUTRES filtres de période laissent ouvert
+  // (cascade), et chaque filtre actif reste visible en badge retirable.
+
+  function populatePeriodValues() {
+    const sel = document.getElementById('op-period-value');
+    const grain = state.period.grain;
+    renderPeriodBadges();
+    if (grain === 'all') { sel.style.display = 'none'; return; }
+
+    const base = filtered(grain);
+    const values = [...new Set(base.map((p) => grainValue(p, grain)).filter((v) => v != null))];
+    if (grain === 'hour') values.sort((a, b) => a - b);
+    else values.sort((a, b) => (a > b ? -1 : 1)); // plus récents d'abord
+
+    const allLabel = {
+      hour: 'Toutes les heures', day: 'Tous les jours', week: 'Toutes les semaines',
+      month: 'Tous les mois', year: 'Toutes les années',
+    }[grain];
+    sel.innerHTML = `<option value="">${allLabel}</option>`
+      + values.map((v) => `<option value="${v}">${grainValueLabel(grain, v)}</option>`).join('');
+    // Conserve la sélection si elle reste disponible ; sinon ce grain saute
+    // (les filtres des autres grains sont conservés).
+    const current = state.period.values[grain] ?? null;
+    const keep = current != null && values.map(String).includes(String(current));
+    if (current != null && !keep) delete state.period.values[grain];
+    sel.value = keep ? String(current) : '';
+    sel.style.display = '';
+  }
+
+  function renderPeriodBadges() {
+    const box = document.getElementById('op-period-badges');
+    const names = { year: 'Année', month: 'Mois', week: 'Semaine', day: 'Jour', hour: 'Heure' };
+    const values = state.period.values || {};
+    const entries = Object.keys(values).filter((g) => values[g] != null);
+    box.hidden = entries.length === 0;
+    box.innerHTML = entries.map((g) =>
+      `<span class="period-badge">${names[g]} : ${escapeHtml(grainValueLabel(g, values[g]))}<span class="x" data-g="${g}" title="Retirer ce filtre">×</span></span>`
+    ).join('');
+    box.querySelectorAll('.x').forEach((x) => x.addEventListener('click', () => {
+      delete state.period.values[x.dataset.g];
+      populatePeriodValues();
+      refresh();
+    }));
+  }
+
+  function resetFilters() {
+    state.netType = 'mobile';
+    state.operator = '__all__';
+    state.tech = '';
+    state.period = { grain: 'all', values: {} };
+    expandedKey = null;
+
+    const activate = (groupSel, attr, val) =>
+      document.querySelectorAll(`${groupSel} .toggle`).forEach((b) =>
+        b.classList.toggle('active', b.dataset[attr] === val));
+    activate('#op-net-type', 'net', 'mobile');
+    activate('#op-period-grain', 'grain', 'all');
+
+    buildOperatorSelect();
+    buildTechChips();
+    updateTechVisibility();
+    populatePeriodValues();
+    refresh();
+    if (typeof App !== 'undefined' && App.toast) App.toast('Filtres réinitialisés');
+  }
+
+  // ── Agrégation ─────────────────────────────────────────────────────────────
+
+  // Une ligne = jour × opérateur × lieu (× heure quand le grain « Heures » est
+  // choisi). La période reste un FILTRE : semaines/mois/années ne changent pas
+  // le regroupement, seulement ce qui est comparé. Les tests sans `location`
+  // sont regroupés sous « Lieu non précisé » plutôt qu'écartés.
   function aggregate() {
+    const byHour = state.period.grain === 'hour';
     const groups = {};
     filtered().forEach((p) => {
-      const period = periodOf(p);
       const operator = p.operator || 'Inconnu';
       const location = p.location || 'Lieu non précisé';
-      const key = `${period.key}|${operator}|${location}`;
-      (groups[key] = groups[key] || { period, operator, location, pts: [] }).pts.push(p);
+      let hour = null;
+      if (byHour) {
+        const d = parseTs(p.timestamp);
+        hour = isNaN(d) ? null : d.getHours();
+      }
+      const key = `${hour == null ? '' : hour + 'h|'}${dayKeyFrom(p)}|${operator}|${location}`;
+      (groups[key] = groups[key] || { hour, dateKey: dayKeyFrom(p), operator, location, pts: [] }).pts.push(p);
     });
 
     return Object.values(groups).map((g) => {
@@ -119,50 +296,42 @@ const Operators = (() => {
       const tech = Object.keys(techCounts).sort((a, b) => techCounts[b] - techCounts[a])[0] || '';
 
       return {
-        periodKey: g.period.key,
-        periodLabel: g.period.label,
+        hour: g.hour,
+        dateKey: g.dateKey,
+        dateLabel: g.hour != null ? `${g.hour} h` : dayLabel(g.dateKey),
         operator: g.operator,
         location: g.location,
+        pts: g.pts,
         count: n,
         avgDl: mean((p) => p.download),
         avgUl: mean((p) => p.upload),
         avgPing: mean((p) => p.ping),
         tech,
-        // Centre géographique des tests du groupe, pour le renvoi vers la carte.
         lat: geo.length ? geo.reduce((s, p) => s + p.lat, 0) / geo.length : null,
         lng: geo.length ? geo.reduce((s, p) => s + p.lng, 0) / geo.length : null,
       };
+    }).sort((a, b) => {
+      // Plus récents d'abord, puis opérateur (lisibilité d'un comparatif).
+      const d = b.dateKey.localeCompare(a.dateKey) || (b.hour ?? 0) - (a.hour ?? 0);
+      return d !== 0 ? d : a.operator.localeCompare(b.operator, 'fr');
     });
   }
 
-  function sortRows(list) {
-    const type = SORTABLE[state.sort] || 'num';
-    const sign = state.dir === 'asc' ? 1 : -1;
-    return [...list].sort((a, b) => {
-      const va = a[state.sort];
-      const vb = b[state.sort];
-      const cmp = type === 'text'
-        ? String(va).localeCompare(String(vb), 'fr')
-        : (Number(va) || 0) - (Number(vb) || 0);
-      // Départage par débit décroissant pour que les ex æquo restent lisibles.
-      return cmp !== 0 ? cmp * sign : b.avgDl - a.avgDl;
-    });
+  // Clé de jour d'un point (grâce à parseTs ; '' si date inconnue).
+  function dayKeyFrom(p) {
+    const d = parseTs(p.timestamp);
+    return isNaN(d) ? '' : dayKey(d);
   }
 
-  // ── Rendu ───────────────────────────────────────────────────────────────────
-
-  function refresh() {
-    rows = aggregate();
-    shown = PAGE_STEP;
-    renderCompare();
-    renderTable();
+  function dayLabel(key) {
+    if (!key) return 'Date inconnue';
+    const [y, m, d] = key.split('-').map(Number);
+    return new Date(y, m - 1, d).toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' });
   }
 
-  // ── Résumé grand public : une carte par opérateur ───────────────────────────
-  // La réponse à la question « quel réseau marche le mieux ? » : les cartes,
-  // triées du plus rapide au plus lent, proviennent des MÊMES filtres que le
-  // tableau (opérateur, technologie, mais toutes périodes et tous lieux : des
-  // moyennes par jour seraient illisibles).
+  // ── Résumé grand public : une carte par opérateur ──────────────────────────
+  // Triées du plus rapide au plus lent, mêmes filtres que le tableau
+  // (opérateur, techno, réseau, période) — moyennes pondérées par test.
   function renderCompare() {
     const pts = filtered();
     const byOp = {};
@@ -200,15 +369,13 @@ const Operators = (() => {
             <div class="op-card-dl"><b>${c.avgDl.toFixed(1)}</b><small>Mb/s</small></div>
             <div class="op-bar"><span class="op-bar-fill" style="width:${(c.avgDl / maxDl) * 100}%;background:${qualityColor(lvl)}"></span></div>
             <div class="op-card-stats">
-              <div><b>${Math.round(c.avgPing)} ms</b><small>Réactivité</small></div>
+              <div><b>${Math.round(c.avgPing)} ms</b><small>Latence</small></div>
               <div><b>${c.count.toLocaleString('fr-FR')}</b><small>Tests</small></div>
             </div>
           </div>`;
       }).join('');
     }
 
-    // Sous-titre : la fenêtre réelle couverte par les tests affichés (« Tests
-    // des 8 derniers jours »), en tonnes grand public plutôt qu'un total brut.
     document.getElementById('op-compare-sub').textContent = spanLabel(pts);
   }
 
@@ -220,75 +387,122 @@ const Operators = (() => {
     if (!dates.length) return tests;
     const n = new Set(dates.map(dayKey)).size;
     if (n === 1) return `${tests} du jour`;
-    // Fenêtre glissante plausible : on borne le libellé aux longues historicités.
     const spanDays = Math.round((Date.now() - Math.min(...dates.map((d) => d.getTime()))) / 86400000) + 1;
     if (spanDays > 60) return `${tests} · toutes dates (${n} jours de mesure)`;
     return `${tests} des ${spanDays} derniers jours`;
   }
 
+  // ── Tableau ────────────────────────────────────────────────────────────────
+
+  // Seuils des pastilles qualité (croquis validé A+B+C+E+D) :
+  // vert = Bon · orange = Moyen/Limitée · rouge = Lent/Dégradé.
+  const dlLevel = (v) => (v >= 10 ? 3 : v >= 5 ? 2 : 1);
+  const ulLevel = (v) => (v >= 5 ? 3 : v >= 1.5 ? 2 : 1);
+  const pingLevel = (v) => (v <= 80 ? 3 : v <= 200 ? 2 : 1);
+  const WORDS = {
+    dl: { 3: 'Bon', 2: 'Moyen', 1: 'Lent' },
+    ping: { 3: 'Bon', 2: 'Limitée', 1: 'Dégradé' },
+  };
+
+  function pill(value, level, words) {
+    const cls = level >= 3 ? 'q-good' : level === 2 ? 'q-mid' : 'q-bad';
+    return `<span class="qv ${cls}">${value}<span class="qtag">${words[level]}</span></span>`;
+  }
+
+  // Colonnes signal : l'app MESURE déjà RSRP/RSRQ (4G/5G) et le RSSI WiFi,
+  // mais l'API ne les diffuse pas encore → « — » assumé, avec infobulle qui
+  // l'explique (pas une panne côté page).
+  const SIGNAL_HINT = "Mesuré par l'app, pas encore diffusé par l'API (extension serveur à venir) - bientôt affiché ici";
+  const N_A_HINT = 'Non applicable : RSRP/RSRQ sont des métriques 4G/5G';
+
   function renderTable() {
+    const thead = document.querySelector('#operators-table thead');
     const tbody = document.querySelector('#operators-table tbody');
-    const sorted = sortRows(rows);
+    const mobile = state.netType === 'mobile';
+    const ncols = mobile ? 10 : 9;
+
+    thead.innerHTML = `<tr>
+      <th>Date</th>
+      <th>${mobile ? 'Opérateur' : 'FAI'}</th>
+      <th title="Technologie la plus représentée dans le groupe.">Techno</th>
+      <th class="num">Tests</th>
+      <th class="num" title="Vitesse de réception moyenne. Plus haut = mieux.">Tél. (Mb/s)</th>
+      <th class="num" title="Vitesse d'émission moyenne. Plus haut = mieux.">Envoi (Mb/s)</th>
+      ${mobile
+        ? `<th class="num" title="Puissance du signal 4G/5G (dBm). Plus proche de 0 = mieux. Affiché « — » sur 2G/3G.">RSRP (dBm)</th>
+           <th class="num" title="Qualité du signal 4G/5G (dB). Plus proche de 0 = mieux. Affiché « — » sur 2G/3G.">RSRQ (dB)</th>`
+        : `<th class="num" title="Puissance du signal WiFi (dBm). Plus proche de 0 = mieux.">RSSI (dBm)</th>`}
+      <th class="num" title="Temps de réponse du réseau. Plus bas = mieux.">Latence (ms)</th>
+      <th title="Cliquez un lieu pour l'ouvrir sur la carte.">Lieu</th>
+    </tr>`;
+
+    const sorted = rows;
     const visible = sorted.slice(0, shown);
 
     if (!visible.length) {
-      tbody.innerHTML = '<tr><td colspan="8" style="color:#5d6478">Aucune mesure pour ces filtres.</td></tr>';
+      tbody.innerHTML = `<tr><td colspan="${ncols}" class="op-empty">Aucune mesure pour ces filtres.</td></tr>`;
       document.getElementById('op-more-wrap').style.display = 'none';
       return;
     }
 
-    // Échelle des barres de débit : le maximum de la page affichée.
-    const maxDl = Math.max(...visible.map((r) => r.avgDl), 1);
+    // Ligne d'information au-dessus du tableau : nombre de groupes + filtres.
+    const bits = [];
+    if (state.netType === 'fixe') bits.push('Fixe');
+    if (state.operator !== '__all__') bits.push(state.operator);
+    if (state.tech) bits.push(state.tech);
+    Object.keys(state.period.values || {}).forEach((g) =>
+      bits.push(`${{ year: 'Année', month: 'Mois', week: 'Semaine', day: 'Jour', hour: 'Heure' }[g]} : ${grainValueLabel(g, state.period.values[g])}`));
+    document.getElementById('op-table-info').textContent =
+      `${visible.length} groupe${visible.length > 1 ? 's' : ''} comparé${visible.length > 1 ? 's' : ''}`
+      + (bits.length ? ` - filtres : ${bits.join(', ')}` : '');
 
-    // Séparation visuelle par période : une ligne allégée avant le premier
-    // groupe de chaque jour/semaine. Seulement quand le tri porte sur la
-    // période — dans les autres tris, les périodes sont mélangées et une
-    // séparation mentirait.
-    const byPeriod = state.sort === 'periodKey';
-
-    tbody.innerHTML = visible.map((r, i) => {
-      const lvl = qualityLevel({ download: r.avgDl }, 'debit');
-      const net = r.tech
-        ? `<span class="net-badge" style="background:${networkColor(r.tech)}">${escapeHtml(r.tech)}</span>` : '·';
+    tbody.innerHTML = visible.map((r) => {
+      const key = `${r.dateKey}|${r.hour ?? ''}|${r.operator}|${r.location}`;
+      const dateCell = `<td class="num op-date">${escapeHtml(r.dateLabel)}</td>`;
+      const opCell = `<td class="op-name">
+        <span class="op-dot" style="background:${operatorColor(r.operator)}"></span>
+        <span>${escapeHtml(r.operator)}</span></td>`;
+      const techCell = r.tech
+        ? `<td><span class="net-badge" style="background:${networkColor(r.tech)}">${escapeHtml(r.tech)}</span></td>`
+        : '<td><span class="geo-none">Non précisé</span></td>';
+      const dlCell = `<td class="num">${pill(r.avgDl.toFixed(1), dlLevel(r.avgDl), WORDS.dl)}</td>`;
+      const ulCell = `<td class="num">${pill(r.avgUl.toFixed(1), ulLevel(r.avgUl), WORDS.dl)}</td>`;
+      // En mobile, « — » a deux sens : métrique non applicable (2G/3G) ou pas
+      // encore diffusée ; en fixe, le RSSI est mesuré mais pas diffusé.
+      const signalCell = mobile
+        ? `<td class="num"><span class="q-dash" title="${r.tech && /^[23]G$/.test(r.tech) ? N_A_HINT : SIGNAL_HINT}">—</span></td>
+           <td class="num"><span class="q-dash" title="${r.tech && /^[23]G$/.test(r.tech) ? N_A_HINT : SIGNAL_HINT}">—</span></td>`
+        : `<td class="num"><span class="q-dash" title="${SIGNAL_HINT}">—</span></td>`;
+      const pingCell = `<td class="num">${pill(`${Math.round(r.avgPing)} ms`, pingLevel(r.avgPing), WORDS.ping)}</td>`;
       const place = cleanPlace(r.location) || r.location;
       const geo = r.lat != null
         ? `<button class="geo-link" data-lat="${r.lat}" data-lng="${r.lng}"
              title="${escapeHtml(place)}, ${r.lat.toFixed(4)}, ${r.lng.toFixed(4)}
 Cliquer pour voir sur la carte">${escapeHtml(place)}</button>`
         : `<span class="geo-none" title="${escapeHtml(place)}">${escapeHtml(place)}</span>`;
+      const lieuCell = `<td class="op-geo">${geo}</td>`;
 
-      const sep = byPeriod && (i === 0 || visible[i - 1].periodLabel !== r.periodLabel)
-        ? `<tr class="op-period-row"><td colspan="8">${escapeHtml(r.periodLabel)}</td></tr>`
+      const open = expandedKey === key;
+      const rawRow = open
+        ? `<tr class="op-raw"><td colspan="${ncols}">
+            <div class="op-raw-list">
+              <span class="op-raw-title">Tests du groupe :</span>
+              ${r.pts.slice(0, 24).map((t) => {
+                const d = parseTs(t.timestamp);
+                const h = isNaN(d) ? '' : `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+                return `<span class="op-raw-item"><b>${h}</b> &darr; ${(Number(t.download) || 0).toFixed(1)} · &uarr; ${(Number(t.upload) || 0).toFixed(1)} Mb/s · ${Math.round(Number(t.ping) || 0)} ms</span>`;
+              }).join('')}
+              ${r.pts.length > 24 ? `<span class="op-raw-item">… et ${r.pts.length - 24} autres</span>` : ''}
+            </div>
+          </td></tr>`
         : '';
 
-      return `
-        ${sep}
-        <tr>
-          <td class="op-period">${escapeHtml(r.periodLabel)}</td>
-          <td class="op-name">
-            <span class="op-dot" style="background:${operatorColor(r.operator)}"></span>
-            <span>${escapeHtml(r.operator)}</span>
-          </td>
-          <td class="num">${r.count}</td>
-          <td class="op-dl">
-            <b>${r.avgDl.toFixed(1)}</b>
-            <div class="op-bar">
-              <span class="op-bar-fill" style="width:${(r.avgDl / maxDl) * 100}%;background:${qualityColor(lvl)}"></span>
-            </div>
-          </td>
-          <td class="num">${r.avgUl.toFixed(1)}</td>
-          <td class="num">${Math.round(r.avgPing)} ms</td>
-          <td>${net}</td>
-          <td class="op-geo">${geo}</td>
-        </tr>`;
+      return `<tr class="op-row" data-key="${escapeHtml(key)}" title="Cliquer pour ${open ? 'replier' : 'déplier'} les tests bruts">
+        ${dateCell}${opCell}${techCell}
+        <td class="num">${r.count}</td>
+        ${dlCell}${ulCell}${signalCell}${pingCell}${lieuCell}
+      </tr>${rawRow}`;
     }).join('');
-
-    // En-têtes : indicateur de tri sur la colonne active.
-    document.querySelectorAll('#operators-table th[data-sort]').forEach((th) => {
-      const active = th.dataset.sort === state.sort;
-      th.classList.toggle('sorted', active);
-      th.dataset.dir = active ? state.dir : '';
-    });
 
     const moreWrap = document.getElementById('op-more-wrap');
     moreWrap.style.display = sorted.length > shown ? '' : 'none';
@@ -296,62 +510,90 @@ Cliquer pour voir sur la carte">${escapeHtml(place)}</button>`
       `${visible.length} ligne${visible.length > 1 ? 's' : ''} sur ${sorted.length}`;
   }
 
-  // ── Interactions ────────────────────────────────────────────────────────────
+  // ── Interactions ───────────────────────────────────────────────────────────
 
   function bind() {
-    document.querySelectorAll('#op-grain .toggle').forEach((btn) => {
+    // Réseau Mobile / Fixe.
+    document.querySelectorAll('#op-net-type .toggle').forEach((btn) => {
       btn.addEventListener('click', () => {
-        document.querySelectorAll('#op-grain .toggle').forEach((b) => b.classList.remove('active'));
+        document.querySelectorAll('#op-net-type .toggle').forEach((b) => b.classList.remove('active'));
         btn.classList.add('active');
-        state.grain = btn.dataset.grain;
+        state.netType = btn.dataset.net;
+        state.operator = '__all__'; // changer de réseau repart de « tous »
+        state.tech = '';
+        expandedKey = null;
+        buildOperatorSelect();
+        buildTechChips();
+        updateTechVisibility();
+        populatePeriodValues();
         refresh();
       });
     });
 
     document.getElementById('op-filter-operator').addEventListener('change', (e) => {
-      state.operator = e.target.value;
-      refresh();
-    });
-    document.getElementById('op-filter-tech').addEventListener('change', (e) => {
-      state.tech = e.target.value;
+      state.operator = e.target.value || '__all__';
       refresh();
     });
 
-    // Tri par clic sur l'en-tête ; deuxième clic inverse le sens.
-    document.querySelectorAll('#operators-table th[data-sort]').forEach((th) => {
-      th.addEventListener('click', () => {
-        const key = th.dataset.sort;
-        if (state.sort === key) {
-          state.dir = state.dir === 'asc' ? 'desc' : 'asc';
-        } else {
-          state.sort = key;
-          // Texte : A→Z d'abord. Nombres : plus grand d'abord.
-          state.dir = SORTABLE[key] === 'text' ? 'asc' : 'desc';
-        }
-        shown = PAGE_STEP;
-        renderTable();
+    // Période : grain, valeur, badges (mêmes mécaniques que la carte).
+    document.querySelectorAll('#op-period-grain .toggle').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#op-period-grain .toggle').forEach((b) => b.classList.remove('active'));
+        btn.classList.add('active');
+        state.period.grain = btn.dataset.grain;
+        // « Tout » = aucun filtre de période ; les autres grains CONSERVENT
+        // les filtres déjà posés (comportement demandé sur la carte).
+        if (btn.dataset.grain === 'all') state.period.values = {};
+        populatePeriodValues();
+        refresh();
       });
+    });
+    document.getElementById('op-period-value').addEventListener('change', (e) => {
+      const g = state.period.grain;
+      if (e.target.value === '') {
+        delete state.period.values[g];
+      } else {
+        state.period.values[g] = e.target.value;
+        // Remonter d'un niveau purge les grains plus fins (cascade).
+        (CHILDREN[g] || []).forEach((c) => delete state.period.values[c]);
+      }
+      populatePeriodValues();
+      refresh();
+    });
+
+    document.getElementById('op-reset').addEventListener('click', resetFilters);
+
+    // Un clic déplie/replie les tests bruts du groupe ; le lien lieu, lui,
+    // renvoie vers la carte (délégation : les lignes sont recréées à chaque
+    // rendu).
+    document.querySelector('#operators-table tbody').addEventListener('click', (e) => {
+      const geoBtn = e.target.closest('.geo-link');
+      if (geoBtn) {
+        App.switchView('map');
+        MapView.showMeasurement(
+          parseFloat(geoBtn.dataset.lat),
+          parseFloat(geoBtn.dataset.lng),
+          geoBtn.textContent.trim(),
+        );
+        return;
+      }
+      const tr = e.target.closest('tr.op-row');
+      if (!tr) return;
+      expandedKey = expandedKey === tr.dataset.key ? null : tr.dataset.key;
+      renderTable();
     });
 
     document.getElementById('op-more').addEventListener('click', () => {
       shown += PAGE_STEP;
       renderTable();
     });
+  }
 
-    // Délégation : le bouton de localisation renvoie à la carte, centrée
-    // sur le barycentre des tests de la ligne.
-    document.querySelector('#operators-table tbody').addEventListener('click', (e) => {
-      const btn = e.target.closest('.geo-link');
-      if (!btn) return;
-      App.switchView('map');
-      // Repère explicite : centrer la carte ne suffit pas à désigner le lieu
-      // parmi les ronds de mesure voisins.
-      MapView.showMeasurement(
-        parseFloat(btn.dataset.lat),
-        parseFloat(btn.dataset.lng),
-        btn.querySelector('span')?.textContent.trim() || btn.textContent.trim(),
-      );
-    });
+  function refresh() {
+    rows = aggregate();
+    shown = PAGE_STEP;
+    renderCompare();
+    renderTable();
   }
 
   /// Oblige la vue à tout relire au prochain affichage.

@@ -722,9 +722,11 @@ select.period-select option { background: var(--white); color: var(--text); }
 }
 .q-pill i { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
 
-/* ─── Vue Opérateurs ─────────────────────────────────────────────────────── */
+/* ─── Vue Comparatif ─────────────────────────────────────────────────────── */
 
-/* En-têtes triables : flèche affichée sur la colonne active. */
+/* En-têtes du tableau Comparatif (plus de tri par colonne : les lignes sont
+   regroupées par jour du plus récent au plus ancien, la colonne Date porte
+   l'ancien séparateur de période). */
 .data-table.sortable th[data-sort] { cursor: pointer; user-select: none; }
 .data-table.sortable th[data-sort]:hover { color: var(--green); }
 .data-table.sortable th.sorted { color: var(--green); }
@@ -779,15 +781,64 @@ select.period-select option { background: var(--white); color: var(--text); }
 .op-card-empty { color: var(--text-soft); font-size: 13px; padding: 8px 0; }
 .op-compare-sub { font-size: 11.5px; color: var(--text-soft); margin-top: 8px; }
 
-/* Séparation visuelle des périodes dans le tableau (tri par période). */
-tr.op-period-row td {
-  padding: 12px 12px 6px;
-  font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px;
-  color: var(--text-soft); border-bottom: none;
-  background: transparent !important;
+/* Carte de filtres : deux blocs (Réseau, Période) + bouton de réinitialisation,
+   à la verticale sur petit écran, côte à côte au-dessus. */
+.op-filters {
+  display: flex; flex-wrap: wrap; gap: 18px 28px; align-items: flex-start;
+  padding-bottom: 14px; margin-bottom: 12px; border-bottom: 1px solid var(--border);
 }
+.op-filter-label {
+  font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px;
+  color: var(--text-soft); margin-bottom: 7px;
+}
+.op-filter-block select { display: block; margin-top: 9px; min-width: 260px; }
+.op-filter-reset { margin-left: auto; align-self: flex-end; }
+/* Chips techno en rangée souple (variante horizontale des chips du panneau). */
+.op-chips { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 6px; }
+.op-chips .chip { width: auto; border-radius: 999px; padding: 5px 13px; display: inline-flex; }
+.op-chips .chip b { display: none; }
+/* Grille des grains de période hors panneau carte : 6 boutons. */
+.op-period-grain { display: inline-grid; grid-template-columns: repeat(3, 1fr); }
 
-.op-period { color: var(--text-soft); font-variant-numeric: tabular-nums; }
+/* Bandeau au-dessus du tableau : nombre de groupes comparés + filtres actifs. */
+.op-table-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; flex-wrap: wrap; margin-bottom: 8px;
+}
+.op-table-info { font-size: 11.5px; color: var(--text-soft); }
+
+/* Pastilles qualité : valeur + étiquette, teinte par classe (vert/orange/rouge,
+   croquis validé du 11/11). */
+.qv {
+  display: inline-block; min-width: 52px; text-align: center;
+  font-weight: 800; font-variant-numeric: tabular-nums;
+  padding: 3px 9px 5px; border-radius: 7px;
+}
+.qv .qtag {
+  display: block; font-size: 9px; font-weight: 700; letter-spacing: .3px; margin-top: 1px;
+}
+.q-good { color: #2f9e44; background: color-mix(in srgb, #2f9e44 12%, transparent); }
+.q-mid { color: #d97706; background: color-mix(in srgb, #d97706 14%, transparent); }
+.q-bad { color: #dc2626; background: color-mix(in srgb, #dc2626 11%, transparent); }
+/* Signal non disponible : tiret neutre avec infobulle explicative. */
+.q-dash { color: var(--text-soft); font-weight: 700; cursor: help; }
+
+/* Ligne de groupe (clicable, déplie les tests bruts) et ligne dépliée. */
+tr.op-row { cursor: pointer; }
+tr.op-row:hover { background: var(--green-light); }
+tr.op-row td { border-bottom: 1px solid var(--border); }
+tr.op-raw td {
+  background: var(--bg); padding: 10px 12px; white-space: normal;
+}
+.op-raw-list { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.op-raw-title { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .4px; color: var(--text-soft); }
+.op-raw-item { color: var(--text); }
+.op-raw-item b { font-variant-numeric: tabular-nums; color: var(--text-soft); margin-right: 4px; }
+
+.op-date { color: var(--text-soft); }
+
+/* Message d'état du tableau (chargement, erreur, aucune mesure). */
+.op-empty { color: var(--text-soft); padding: 16px 12px; }
 
 /* Opérateur : pastille de couleur alignée en colonne, comme dans le panneau de
    la carte. Le nom canonique est court, il n'a plus besoin d'être tronqué. */
