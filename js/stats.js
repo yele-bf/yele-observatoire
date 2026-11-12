@@ -698,7 +698,7 @@ const Stats = (() => {
       // Signal réel (ISS-01) ; null = aucun test ne porte la valeur, exporté
       // « — » comme à l'écran.
       return opsData.length
-        ? { cols: ['Opérateur', 'Tests', 'Download moyen (Mb/s)', 'Envoi moyen (Mb/s)', 'RSRP moyen (dBm)', 'RSRQ moyen (dB)', 'RSSI moyen (dBm)', 'Latence moyenne (ms)'],
+        ? { cols: ['Mobiles / FAI', 'Tests', 'Download moyen (Mb/s)', 'Envoi moyen (Mb/s)', 'RSRP moyen (dBm)', 'RSRQ moyen (dB)', 'RSSI moyen (dBm)', 'Latence moyenne (ms)'],
             rows: opsData.map((o) => [o.operator, o.n, o.avgDl, o.avgUl, o.avgRsrp, o.avgRsrq, o.avgRssi, Math.round(o.avgPing)]) }
         : null;
     }

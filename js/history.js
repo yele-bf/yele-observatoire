@@ -287,16 +287,12 @@ const History = (() => {
     return `<span class="qv ${cls}">${word}<span class="qtag">niveau ${qoe}</span></span>`;
   };
 
-  // Cellule « Lieu ». Cliquable quand la mesure est géolocalisée : un clic
-  // ouvre la carte centrée sur la mesure (IMP-07).
+  // Cellule « Lieu ». Le lieu reste affiché ; la LIGNE entière est cliquable
+  // (demande du 12/11) : un clic n'importe où dessus ouvre la carte centrée
+  // sur la mesure (IMP-07), pas seulement la colonne Lieu.
   function placeCell(r) {
     const place = cleanPlace(r.location) || '·';
-    if (!r.lat || !r.lng) {
-      return `<span class="geo-none" title="${escapeHtml(place)}">${escapeHtml(place)}</span>`;
-    }
-    return `<button class="geo-link" data-lat="${r.lat}" data-lng="${r.lng}"
-      title="${escapeHtml(place)}, ${r.lat.toFixed(4)}, ${r.lng.toFixed(4)}
-Cliquer pour voir sur la carte">${escapeHtml(place)}</button>`;
+    return `<span class="geo-none" title="${escapeHtml(place)}">${escapeHtml(place)}</span>`;
   }
 
   const COLS_MOBILE = [
@@ -375,9 +371,18 @@ Cliquer pour voir sur la carte">${escapeHtml(place)}</button>`;
     if (!visible.length) {
       tbody.innerHTML = `<tr><td colspan="${cs.length}" class="op-empty">Aucun test pour ces filtres.</td></tr>`;
     } else {
-      tbody.innerHTML = visible.map((r) => '<tr>'
-        + cs.map((c) => `<td${c.num ? ' class="num"' : ''}>${c.html(r)}</td>`).join('')
-        + '</tr>').join('');
+      tbody.innerHTML = visible.map((r) => {
+        // Ligne cliquable quand la mesure est géolocalisée : ouvre la carte
+        // centrée sur le point (demande du 12/11).
+        const geo = r.lat && r.lng
+          ? ` class="hi-row-geo" data-lat="${r.lat}" data-lng="${r.lng}"
+              data-place="${escapeHtml(cleanPlace(r.location) || '')}"
+              title="Cliquer la ligne pour voir la mesure sur la carte"`
+          : '';
+        return '<tr' + geo + '>'
+          + cs.map((c) => `<td${c.num ? ' class="num"' : ''}>${c.html(r)}</td>`).join('')
+          + '</tr>';
+      }).join('');
     }
 
     const n = list.length;
@@ -474,16 +479,17 @@ Cliquer pour voir sur la carte">${escapeHtml(place)}</button>`;
       render();
     });
 
-    // « Lieu » cliquable : renvoi vers la carte (délégation : les lignes sont
-    // recréées à chaque rendu).
+    // Ligne cliquable → carte (délégation : les lignes sont recréées à chaque
+    // rendu). Toute la ligne ouvre la mesure sur la carte, plus seulement la
+    // colonne Lieu (demande du 12/11).
     document.querySelector('#history-table tbody').addEventListener('click', (e) => {
-      const btn = e.target.closest('.geo-link');
-      if (!btn) return;
+      const tr = e.target.closest('tr.hi-row-geo');
+      if (!tr) return;
       App.switchView('map');
       MapView.showMeasurement(
-        parseFloat(btn.dataset.lat),
-        parseFloat(btn.dataset.lng),
-        btn.textContent.trim(),
+        parseFloat(tr.dataset.lat),
+        parseFloat(tr.dataset.lng),
+        tr.dataset.place || '',
       );
     });
 

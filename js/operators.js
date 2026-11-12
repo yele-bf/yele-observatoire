@@ -98,7 +98,7 @@ const Operators = (() => {
     built = true;
 
     const tbody = document.querySelector('#operators-table tbody');
-    tbody.innerHTML = '<tr><td colspan="10" class="op-empty">Chargement…</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="op-empty">Chargement…</td></tr>';
 
     points = MapView.getPoints();
     if (!points.length) {
@@ -110,7 +110,7 @@ const Operators = (() => {
           networkType: normalizeNetwork(p.networkType),
         }));
       } catch (e) {
-        tbody.innerHTML = `<tr><td colspan="10" class="op-empty">Erreur : ${escapeHtml(e.message)}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="9" class="op-empty">Erreur : ${escapeHtml(e.message)}</td></tr>`;
         return;
       }
     }
@@ -551,7 +551,9 @@ const Operators = (() => {
     const thead = document.querySelector('#operators-table thead');
     const tbody = document.querySelector('#operators-table tbody');
     const mobile = state.netType === 'mobile';
-    const ncols = mobile ? 10 : 9;
+    // Colonne « Lieu » retirée (demande du 12/11) : le comparatif se lit
+    // opérateur par opérateur, la carte reste accessible depuis la vue Carte.
+    const ncols = mobile ? 9 : 8;
 
     thead.innerHTML = `<tr>
       <th>Date</th>
@@ -565,7 +567,6 @@ const Operators = (() => {
            <th class="num" title="Qualité du signal 4G/5G (dB). Plus proche de 0 = mieux. Affiché « — » sur 2G/3G.">RSRQ (dB)</th>`
         : `<th class="num" title="Puissance du signal WiFi (dBm). Plus proche de 0 = mieux.">RSSI (dBm)</th>`}
       <th class="num" title="Temps de réponse du réseau. Plus bas = mieux.">Latence (ms)</th>
-      <th title="Cliquez un lieu pour l'ouvrir sur la carte.">Lieu</th>
     </tr>`;
 
     const sorted = rows;
@@ -615,13 +616,6 @@ const Operators = (() => {
            <td class="num">${sig(r.avgRsrq, signalHint(r.tech))}</td>`
         : `<td class="num">${sig(r.avgRssi, SIGNAL_HINT)}</td>`;
       const pingCell = `<td class="num">${pill(`${Math.round(r.avgPing)} ms`, pingLevel(r.avgPing), WORDS.ping)}</td>`;
-      const place = cleanPlace(r.location) || r.location;
-      const geo = r.lat != null
-        ? `<button class="geo-link" data-lat="${r.lat}" data-lng="${r.lng}"
-             title="${escapeHtml(place)}, ${r.lat.toFixed(4)}, ${r.lng.toFixed(4)}
-Cliquer pour voir sur la carte">${escapeHtml(place)}</button>`
-        : `<span class="geo-none" title="${escapeHtml(place)}">${escapeHtml(place)}</span>`;
-      const lieuCell = `<td class="op-geo">${geo}</td>`;
 
       const open = expandedKey === key;
       const rawRow = open
@@ -641,7 +635,7 @@ Cliquer pour voir sur la carte">${escapeHtml(place)}</button>`
       return `<tr class="op-row" data-key="${escapeHtml(key)}" title="Cliquer pour ${open ? 'replier' : 'déplier'} les tests bruts">
         ${dateCell}${opCell}${techCell}
         <td class="num">${r.count}</td>
-        ${dlCell}${ulCell}${signalCell}${pingCell}${lieuCell}
+        ${dlCell}${ulCell}${signalCell}${pingCell}
       </tr>${rawRow}`;
     }).join('');
 
@@ -704,22 +698,12 @@ Cliquer pour voir sur la carte">${escapeHtml(place)}</button>`
 
     document.getElementById('op-reset').addEventListener('click', resetFilters);
 
-    // Un clic déplie/replie les tests bruts du groupe ; le lien lieu, lui,
-    // renvoie vers la carte (délégation : les lignes sont recréées à chaque
-    // rendu).
+    // Un clic déplie/replie les tests bruts du groupe (délégation : les
+    // lignes sont recréées à chaque rendu). Colonne « Lieu » retirée le
+    // 12/11 : plus de renvoi carte depuis ce tableau.
     document.querySelector('#operators-table tbody').addEventListener('click', (e) => {
       // Bouton de sortie de l'état vide : mêmes effets que le reset du haut.
       if (e.target.closest('#op-empty-reset')) { resetFilters(); return; }
-      const geoBtn = e.target.closest('.geo-link');
-      if (geoBtn) {
-        App.switchView('map');
-        MapView.showMeasurement(
-          parseFloat(geoBtn.dataset.lat),
-          parseFloat(geoBtn.dataset.lng),
-          geoBtn.textContent.trim(),
-        );
-        return;
-      }
       const tr = e.target.closest('tr.op-row');
       if (!tr) return;
       expandedKey = expandedKey === tr.dataset.key ? null : tr.dataset.key;
@@ -739,11 +723,11 @@ Cliquer pour voir sur la carte">${escapeHtml(place)}</button>`
   function exportRows() {
     const mobile = state.netType === 'mobile';
     const cols = mobile
-      ? ['Date', 'Opérateur', 'Techno', 'Tests', 'Download (Mb/s)', 'Upload (Mb/s)', 'RSRP (dBm)', 'RSRQ (dB)', 'Latence (ms)', 'Lieu']
-      : ['Date', 'FAI', 'Techno', 'Tests', 'Download (Mb/s)', 'Upload (Mb/s)', 'RSSI (dBm)', 'Latence (ms)', 'Lieu'];
+      ? ['Date', 'Opérateur', 'Techno', 'Tests', 'Download (Mb/s)', 'Upload (Mb/s)', 'RSRP (dBm)', 'RSRQ (dB)', 'Latence (ms)']
+      : ['Date', 'FAI', 'Techno', 'Tests', 'Download (Mb/s)', 'Upload (Mb/s)', 'RSSI (dBm)', 'Latence (ms)'];
     const line = (r) => mobile
-      ? [r.dateLabel, r.operator, r.tech, r.count, r.avgDl, r.avgUl, r.avgRsrp, r.avgRsrq, Math.round(r.avgPing), r.location]
-      : [r.dateLabel, r.operator, r.tech, r.count, r.avgDl, r.avgUl, r.avgRssi, Math.round(r.avgPing), r.location];
+      ? [r.dateLabel, r.operator, r.tech, r.count, r.avgDl, r.avgUl, r.avgRsrp, r.avgRsrq, Math.round(r.avgPing)]
+      : [r.dateLabel, r.operator, r.tech, r.count, r.avgDl, r.avgUl, r.avgRssi, Math.round(r.avgPing)];
     // null = aucun test du groupe n'a mesuré la valeur : exporté « — » comme à l'écran.
     return { mobile, cols, rows: rows.map(line) };
   }

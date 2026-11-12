@@ -885,6 +885,10 @@ select.period-select option { background: var(--white); color: var(--text); }
 
 /* Pastilles qualité : valeur + étiquette, teinte par classe (vert/orange/rouge,
    croquis validé du 11/11). */
+/* Ligne d'Historique cliquable (demande du 12/11) : TOUTE la ligne ouvre la
+   mesure sur la carte, plus seulement la cellule Lieu. */
+tr.hi-row-geo { cursor: pointer; }
+tr.hi-row-geo:hover td { background: var(--green-light); }
 .qv {
   display: inline-block; min-width: 52px; text-align: center;
   font-weight: 800; font-variant-numeric: tabular-nums;
