@@ -11,8 +11,8 @@
 //     triés par date décroissante, 20 par page (« Afficher plus ») ;
 //   - Exports CSV / XLSX / PNG de la vue filtrée (machinerie des Statistiques) ;
 //   - « Lieu » cliquable : renvoie à la mesure sur la carte (IMP-07).
-// RSRP (mobile) est déjà diffusé par l'API via signalDbm ; RSRQ et RSSI (fixe)
-// restent « — » tant que l'extension serveur ne les diffuse pas.
+// RSRP (mobile) et RSRQ/RSSI (ISS-01) sont diffusés par l'API : la valeur
+// s'affiche dès qu'un test la porte, « — » avec infobulle sinon.
 
 const History = (() => {
   const PAGE_STEP = 20;
@@ -190,11 +190,12 @@ const History = (() => {
     sel.value = state.supplier;
   }
 
-  // Chips techno : Toutes + les technologies vues dans les tests mobiles.
+  // Chips techno : TOUJOURS Toutes + 2G/3G/4G/5G (demande du 12/11) — la
+  // série complète reste visible même si aucun test de la période n'a une
+  // techno donnée ; la sélection aboutit alors à l'état vide guidé.
   function buildTechChips() {
     const box = document.getElementById('hi-tech-chips');
-    const pool = [...new Set(all.filter((r) => r.isCell).map((r) => r.tech).filter(Boolean))];
-    const techs = ['2G', '3G', '4G', '5G'].filter((t) => pool.includes(t));
+    const techs = ['2G', '3G', '4G', '5G'];
     box.innerHTML = `<button class="chip${state.tech ? '' : ' active'}" data-tech="">Toutes</button>`
       + techs.map((t) =>
         `<button class="chip${state.tech === t ? ' active' : ''}" data-tech="${t}">${t}</button>`).join('');
@@ -255,11 +256,11 @@ const History = (() => {
   }
 
   // ── Colonnes (croquis validé le 11/11) ─────────────────────────────────────
-  // « — » a trois sens, toujours expliqué en infobulle : métrique non
-  // applicable (RSRP/RSRQ sur 2G/3G), pas encore diffusée par l'API (RSRQ,
-  // RSSI) ou non testée pendant la session (Streaming, Nav. web).
+  // « — » a deux sens, toujours expliqué en infobulle : métrique non
+  // applicable (RSRP/RSRQ sur 2G/3G) ou aucun test de la ligne ne l'a
+  // mesurée (RSRQ, RSSI, non-tests Streaming / Nav. web).
 
-  const SIGNAL_HINT = "Mesuré par l'app, pas encore diffusé par l'API (extension serveur à venir) - bientôt affiché ici";
+  const SIGNAL_HINT = "L'app mesure cette valeur ; « — » tant qu'aucun test de la ligne ne l'a transmise";
   const N_A_HINT = 'Non applicable : RSRP/RSRQ sont des métriques 4G/5G';
   const NOT_TESTED_HINT = 'Non testé pendant cette session';
 
@@ -286,16 +287,12 @@ const History = (() => {
     return `<span class="qv ${cls}">${word}<span class="qtag">niveau ${qoe}</span></span>`;
   };
 
-  // Cellule « Lieu ». Cliquable quand la mesure est géolocalisée : un clic
-  // ouvre la carte centrée sur la mesure (IMP-07).
+  // Cellule « Lieu ». Le lieu reste affiché ; la LIGNE entière est cliquable
+  // (demande du 12/11) : un clic n'importe où dessus ouvre la carte centrée
+  // sur la mesure (IMP-07), pas seulement la colonne Lieu.
   function placeCell(r) {
     const place = cleanPlace(r.location) || '·';
-    if (!r.lat || !r.lng) {
-      return `<span class="geo-none" title="${escapeHtml(place)}">${escapeHtml(place)}</span>`;
-    }
-    return `<button class="geo-link" data-lat="${r.lat}" data-lng="${r.lng}"
-      title="${escapeHtml(place)}, ${r.lat.toFixed(4)}, ${r.lng.toFixed(4)}
-Cliquer pour voir sur la carte">${escapeHtml(place)}</button>`;
+    return `<span class="geo-none" title="${escapeHtml(place)}">${escapeHtml(place)}</span>`;
   }
 
   const COLS_MOBILE = [
@@ -374,9 +371,18 @@ Cliquer pour voir sur la carte">${escapeHtml(place)}</button>`;
     if (!visible.length) {
       tbody.innerHTML = `<tr><td colspan="${cs.length}" class="op-empty">Aucun test pour ces filtres.</td></tr>`;
     } else {
-      tbody.innerHTML = visible.map((r) => '<tr>'
-        + cs.map((c) => `<td${c.num ? ' class="num"' : ''}>${c.html(r)}</td>`).join('')
-        + '</tr>').join('');
+      tbody.innerHTML = visible.map((r) => {
+        // Ligne cliquable quand la mesure est géolocalisée : ouvre la carte
+        // centrée sur le point (demande du 12/11).
+        const geo = r.lat && r.lng
+          ? ` class="hi-row-geo" data-lat="${r.lat}" data-lng="${r.lng}"
+              data-place="${escapeHtml(cleanPlace(r.location) || '')}"
+              title="Cliquer la ligne pour voir la mesure sur la carte"`
+          : '';
+        return '<tr' + geo + '>'
+          + cs.map((c) => `<td${c.num ? ' class="num"' : ''}>${c.html(r)}</td>`).join('')
+          + '</tr>';
+      }).join('');
     }
 
     const n = list.length;
@@ -473,16 +479,17 @@ Cliquer pour voir sur la carte">${escapeHtml(place)}</button>`;
       render();
     });
 
-    // « Lieu » cliquable : renvoi vers la carte (délégation : les lignes sont
-    // recréées à chaque rendu).
+    // Ligne cliquable → carte (délégation : les lignes sont recréées à chaque
+    // rendu). Toute la ligne ouvre la mesure sur la carte, plus seulement la
+    // colonne Lieu (demande du 12/11).
     document.querySelector('#history-table tbody').addEventListener('click', (e) => {
-      const btn = e.target.closest('.geo-link');
-      if (!btn) return;
+      const tr = e.target.closest('tr.hi-row-geo');
+      if (!tr) return;
       App.switchView('map');
       MapView.showMeasurement(
-        parseFloat(btn.dataset.lat),
-        parseFloat(btn.dataset.lng),
-        btn.textContent.trim(),
+        parseFloat(tr.dataset.lat),
+        parseFloat(tr.dataset.lng),
+        tr.dataset.place || '',
       );
     });
 

@@ -8,9 +8,10 @@
 //   - La période est un FILTRE (comme sur la carte), jamais un regroupement :
 //     le tableau regroupe par jour (× opérateur × lieu), et par heure quand le
 //     grain « Heures » est choisi ;
-//   - Colonnes avec mesures signal (RSRP/RSRQ en mobile, RSSI en fixe) : l'app
-//     collecte déjà ces valeurs mais l'API ne les diffuse pas encore
-//     (/api/dashboard/map) → affichées « — » avec infobulle explicative ;
+//   - Colonnes avec mesures signal (RSRP/RSRQ en mobile, RSSI en fixe) :
+//     moyennes des tests du groupe portant la valeur (ISS-01 : l'API
+//     diffuse rsrp/rsrq/rssi consolidés), « — » tant qu'aucun test du
+//     groupe ne l'a mesurée ;
 //   - Ligne dépliable : les tests bruts du groupe (heure, débits, latence).
 // Agrège côté client les points de /api/dashboard/map (Map.getPoints()).
 
@@ -97,7 +98,7 @@ const Operators = (() => {
     built = true;
 
     const tbody = document.querySelector('#operators-table tbody');
-    tbody.innerHTML = '<tr><td colspan="10" class="op-empty">Chargement…</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="op-empty">Chargement…</td></tr>';
 
     points = MapView.getPoints();
     if (!points.length) {
@@ -109,7 +110,7 @@ const Operators = (() => {
           networkType: normalizeNetwork(p.networkType),
         }));
       } catch (e) {
-        tbody.innerHTML = `<tr><td colspan="10" class="op-empty">Erreur : ${escapeHtml(e.message)}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="9" class="op-empty">Erreur : ${escapeHtml(e.message)}</td></tr>`;
         return;
       }
     }
@@ -346,6 +347,15 @@ const Operators = (() => {
       });
       const tech = Object.keys(techCounts).sort((a, b) => techCounts[b] - techCounts[a])[0] || '';
 
+      // Signal détaillé (ISS-01 : l'API diffuse rsrp/rsrq/rssi consolidés).
+      // Moyennes sur les seuls tests qui ONT la valeur ; null = aucun —
+      // l'écran affiche « — », jamais un zéro qui dirait « signal nul ».
+      const meanSignal = (k) => {
+        const vals = g.pts.map((p) => (p[k] == null ? null : Number(p[k])))
+          .filter((v) => v != null);
+        return vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null;
+      };
+
       return {
         hour: g.hour,
         dateKey: g.dateKey,
@@ -357,6 +367,9 @@ const Operators = (() => {
         avgDl: mean((p) => p.download),
         avgUl: mean((p) => p.upload),
         avgPing: mean((p) => p.ping),
+        avgRsrp: meanSignal('rsrp'),
+        avgRsrq: meanSignal('rsrq'),
+        avgRssi: meanSignal('rssi'),
         tech,
         lat: geo.length ? geo.reduce((s, p) => s + p.lat, 0) / geo.length : null,
         lng: geo.length ? geo.reduce((s, p) => s + p.lng, 0) / geo.length : null,
@@ -381,33 +394,59 @@ const Operators = (() => {
   }
 
   // ── Résumé grand public : classement des 3 premiers + classement global ────
-  // Croquis validé le 11/11 : les cartes gardent leur design (badge « Réseau
-  // le plus rapide » sur le 1ᵉʳ) avec le rang affiché en coin ; dessous, le
-  // classement global liste TOUS les opérateurs du 1ᵉʳ au dernier, top 3
-  // surligné. Tri sur le débit moyen ↓, mêmes filtres que le tableau —
-  // moyennes pondérées par test.
+  // Croquis validé le 11/11 (cartes + rang en coin, global complet) ; affiné
+  // le 12/11 : le comparatif se fait PAR CATÉGORIE — les opérateurs MOBILES
+  // entre eux (les 3 opérateurs ARCEP sont TOUJOURS listés, même sans test
+  // sous les filtres courants : carte grisée « Aucun test ») et les
+  // fournisseurs FIXES entre eux (les FAI vus dans les tests non cellulaires).
+  // Tri sur le débit moyen ↓, mêmes filtres que le tableau — moyennes
+  // pondérées par test ; les opérateurs sans test passent après ceux qui en
+  // ont, dans l'ordre du palmarès.
   const RANKS = ['', '1ᵉʳ', '2ᵉ', '3ᵉ', '4ᵉ', '5ᵉ', '6ᵉ', '7ᵉ', '8ᵉ'];
   const rankLabel = (i) => RANKS[i + 1] || (i + 1) + 'ᵉ';
 
   function renderCompare() {
     const pts = filtered();
-    const byOp = {};
+
+    // Palmarès de la catégorie courante (indépendant des filtres de période :
+    // un opérateur reste listé même si la période le vide de ses tests).
+    const pool = points.filter((p) =>
+      state.netType === 'mobile' ? isCellularTest(p) : !isCellularTest(p));
+    let roster;
+    if (state.operator !== '__all__') {
+      // Un opérateur précisément filtré : les autres sortent du palmarès.
+      roster = [state.operator];
+    } else if (state.netType === 'mobile') {
+      const seen = [...new Set(pool.map((p) => p.operator || 'Inconnu'))];
+      roster = [...MOBILE_OPERATORS,
+        ...seen.filter((op) => !MOBILE_OPERATORS.includes(op) && op !== 'Inconnu')];
+    } else {
+      // Fixe : les FAI vus dans les tests non cellulaires, les plus testés
+      // d'abord (même ordre que le select de filtre).
+      const counts = {};
+      pool.forEach((p) => {
+        const op = p.operator || 'Inconnu';
+        counts[op] = (counts[op] || 0) + 1;
+      });
+      roster = Object.keys(counts).sort((a, b) =>
+        counts[b] - counts[a] || a.localeCompare(b, 'fr'));
+    }
+
+    const stats = {};
     pts.forEach((p) => {
-      const acc = byOp[p.operator || 'Inconnu']
-        = byOp[p.operator || 'Inconnu'] || { sumDl: 0, sumPing: 0, count: 0 };
+      const acc = stats[p.operator || 'Inconnu']
+        = stats[p.operator || 'Inconnu'] || { sumDl: 0, sumPing: 0, count: 0 };
       acc.sumDl += Number(p.download) || 0;
       acc.sumPing += Number(p.ping) || 0;
       acc.count += 1;
     });
 
-    const cards = Object.entries(byOp)
-      .map(([operator, a]) => ({
-        operator,
-        avgDl: a.sumDl / a.count,
-        avgPing: a.sumPing / a.count,
-        count: a.count,
-      }))
-      .sort((a, b) => b.avgDl - a.avgDl);
+    const cards = roster.map((operator) => {
+      const a = stats[operator];
+      return a
+        ? { operator, avgDl: a.sumDl / a.count, avgPing: a.sumPing / a.count, count: a.count }
+        : { operator, avgDl: null, avgPing: null, count: 0 };
+    }).sort((a, b) => (b.avgDl ?? -1) - (a.avgDl ?? -1));
 
     const wrap = document.getElementById('op-compare');
     const globalBox = document.getElementById('op-global');
@@ -417,47 +456,59 @@ const Operators = (() => {
       globalBox.hidden = true;
       if (globalTitle) globalTitle.style.display = 'none';
     } else {
-      const maxDl = Math.max(...cards.map((c) => c.avgDl), 1);
+      const maxDl = Math.max(...cards.map((c) => c.avgDl || 0), 1);
       // Décimales à la française (« 22,1 »), comme sur la vue Statistiques.
       const fr1 = (v) => v.toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
-      // Podium : les 3 premiers, même carte qu'aujourd'hui + rang en coin.
+      // Podium : les 3 premiers, même carte qu'aujourd'hui + rang en coin ;
+      // un opérateur sans test est grisé, « Aucun test » à la place des valeurs.
       wrap.innerHTML = cards.slice(0, 3).map((c, i) => {
-        const lvl = qualityLevel({ download: c.avgDl }, 'debit');
+        const vide = c.avgDl == null;
+        const lvl = vide ? 1 : qualityLevel({ download: c.avgDl }, 'debit');
         return `
-          <div class="op-card${i === 0 && cards.length > 1 ? ' op-card-best' : ''}">
+          <div class="op-card${i === 0 && cards.length > 1 && !vide ? ' op-card-best' : ''}${vide ? ' op-card-none' : ''}">
             <div class="op-rank">${rankLabel(i)}</div>
-            ${i === 0 && cards.length > 1 ? '<div class="op-best-badge">Réseau le plus rapide (débit moyen ↓)</div>' : ''}
+            ${i === 0 && cards.length > 1 && !vide ? '<div class="op-best-badge">Réseau le plus rapide (débit moyen ↓)</div>' : ''}
             <div class="op-card-name">
               <span class="op-dot" style="background:${operatorColor(c.operator)}"></span>
               <span>${escapeHtml(c.operator)}</span>
             </div>
-            <div class="op-card-dl"><b>${fr1(c.avgDl)}</b><small>Mb/s</small></div>
-            <div class="op-bar"><span class="op-bar-fill" style="width:${(c.avgDl / maxDl) * 100}%;background:${qualityColor(lvl)}"></span></div>
-            <div class="op-card-stats">
+            <div class="op-card-dl">${vide
+              ? '<div class="op-card-none-txt">Aucun test</div>'
+              : `<b>${fr1(c.avgDl)}</b><small>Mb/s</small>`}</div>
+            <div class="op-bar">${vide ? '' : `<span class="op-bar-fill" style="width:${(c.avgDl / maxDl) * 100}%;background:${qualityColor(lvl)}"></span>`}</div>
+            <div class="op-card-stats">${vide ? '' : `
               <div><b>${Math.round(c.avgPing)} ms</b><small>Latence</small></div>
-              <div><b>${c.count.toLocaleString('fr-FR')}</b><small>Tests</small></div>
-            </div>
+              <div><b>${c.count.toLocaleString('fr-FR')}</b><small>Tests</small></div>`}</div>
           </div>`;
       }).join('');
 
-      // Classement global : tous les opérateurs, du 1ᵉʳ au dernier.
+      // Classement global : tous les opérateurs de la catégorie, du 1ᵉʳ au
+      // dernier (les rangs 4ᵉ, 5ᵉ… existent dès qu'il y a plus de 3 acteurs).
       globalBox.hidden = false;
       if (globalTitle) globalTitle.style.display = '';
       globalBox.innerHTML = `
         <div class="op-global-head"><span class="op-global-rank">Rang</span><span class="op-global-name">Opérateur</span><span class="op-global-num">Débit ↓</span><span class="op-global-ms">Latence</span><span class="op-global-count">Tests</span></div>`
-        + cards.map((c, i) => `
-          <div class="op-global-row${i < 3 ? ' top' : ''}">
+        + cards.map((c, i) => {
+          const vide = c.avgDl == null;
+          return `
+          <div class="op-global-row${i < 3 && !vide ? ' top' : ''}${vide ? ' off' : ''}">
             <span class="op-global-rank">${rankLabel(i)}</span>
             <span class="op-global-name">
-              <span class="op-dot" style="background:${operatorColor(c.operator)}"></span>${escapeHtml(c.operator)}${i === 0 ? '<span class="op-global-medal">Le plus rapide ↓</span>' : ''}
+              <span class="op-dot" style="background:${operatorColor(c.operator)}"></span>${escapeHtml(c.operator)}${i === 0 && !vide ? '<span class="op-global-medal">Le plus rapide ↓</span>' : ''}
             </span>
-            <span class="op-global-num"><b>${fr1(c.avgDl)}</b> <small>Mb/s</small></span>
-            <span class="op-global-ms">${Math.round(c.avgPing)} ms</span>
-            <span class="op-global-count">${c.count.toLocaleString('fr-FR')}</span>
-          </div>`).join('');
+            <span class="op-global-num">${vide ? '<small>Aucun test</small>' : `<b>${fr1(c.avgDl)}</b> <small>Mb/s</small>`}</span>
+            <span class="op-global-ms">${vide ? '·' : `${Math.round(c.avgPing)} ms`}</span>
+            <span class="op-global-count">${vide ? '0' : c.count.toLocaleString('fr-FR')}</span>
+          </div>`;
+        }).join('');
     }
 
-    document.getElementById('op-compare-sub').textContent = spanLabel(pts);
+    // La mention de catégorie rappelle que mobile et fixe ne se comparent
+    // jamais entre eux (demande du 12/11).
+    const cat = state.netType === 'mobile'
+      ? 'comparaison entre opérateurs MOBILES uniquement'
+      : 'comparaison entre fournisseurs FIXES uniquement';
+    document.getElementById('op-compare-sub').textContent = `${spanLabel(pts)} · ${cat}`;
   }
 
   // Nombre de jours distincts couverts par les tests affichés.
@@ -490,17 +541,19 @@ const Operators = (() => {
     return `<span class="qv ${cls}">${value}<span class="qtag">${words[level]}</span></span>`;
   }
 
-  // Colonnes signal : l'app MESURE déjà RSRP/RSRQ (4G/5G) et le RSSI WiFi,
-  // mais l'API ne les diffuse pas encore → « — » assumé, avec infobulle qui
-  // l'explique (pas une panne côté page).
-  const SIGNAL_HINT = "Mesuré par l'app, pas encore diffusé par l'API (extension serveur à venir) - bientôt affiché ici";
+  // Colonnes signal (ISS-01 : l'API diffuse rsrp/rsrq/rssi consolidés) : la
+  // moyenne du groupe s'affiche dès qu'UN test du groupe a la valeur ; « — »
+  // sinon, avec infobulle qui explique le tiret (pas une panne côté page).
+  const SIGNAL_HINT = "L'app mesure cette valeur ; « — » tant qu'aucun test de la ligne ne l'a transmise";
   const N_A_HINT = 'Non applicable : RSRP/RSRQ sont des métriques 4G/5G';
 
   function renderTable() {
     const thead = document.querySelector('#operators-table thead');
     const tbody = document.querySelector('#operators-table tbody');
     const mobile = state.netType === 'mobile';
-    const ncols = mobile ? 10 : 9;
+    // Colonne « Lieu » retirée (demande du 12/11) : le comparatif se lit
+    // opérateur par opérateur, la carte reste accessible depuis la vue Carte.
+    const ncols = mobile ? 9 : 8;
 
     thead.innerHTML = `<tr>
       <th>Date</th>
@@ -514,7 +567,6 @@ const Operators = (() => {
            <th class="num" title="Qualité du signal 4G/5G (dB). Plus proche de 0 = mieux. Affiché « — » sur 2G/3G.">RSRQ (dB)</th>`
         : `<th class="num" title="Puissance du signal WiFi (dBm). Plus proche de 0 = mieux.">RSSI (dBm)</th>`}
       <th class="num" title="Temps de réponse du réseau. Plus bas = mieux.">Latence (ms)</th>
-      <th title="Cliquez un lieu pour l'ouvrir sur la carte.">Lieu</th>
     </tr>`;
 
     const sorted = rows;
@@ -552,20 +604,18 @@ const Operators = (() => {
         : '<td><span class="geo-none">Non précisé</span></td>';
       const dlCell = `<td class="num">${pill(r.avgDl.toFixed(1), dlLevel(r.avgDl), WORDS.dl)}</td>`;
       const ulCell = `<td class="num">${pill(r.avgUl.toFixed(1), ulLevel(r.avgUl), WORDS.dl)}</td>`;
-      // En mobile, « — » a deux sens : métrique non applicable (2G/3G) ou pas
-      // encore diffusée ; en fixe, le RSSI est mesuré mais pas diffusé.
+      // En mobile, « — » a deux sens : métrique non applicable (2G/3G) ou
+      // aucun test du groupe ne l'a mesurée ; en fixe, même logique pour le
+      // RSSI (les tests WiFi récents la portent).
+      const signalHint = (t) => (t && /^[23]G$/.test(t) ? N_A_HINT : SIGNAL_HINT);
+      const sig = (v, hint) => v == null
+        ? `<span class="q-dash" title="${hint}">—</span>`
+        : `<span title="${hint}">${Math.round(v)}</span>`;
       const signalCell = mobile
-        ? `<td class="num"><span class="q-dash" title="${r.tech && /^[23]G$/.test(r.tech) ? N_A_HINT : SIGNAL_HINT}">—</span></td>
-           <td class="num"><span class="q-dash" title="${r.tech && /^[23]G$/.test(r.tech) ? N_A_HINT : SIGNAL_HINT}">—</span></td>`
-        : `<td class="num"><span class="q-dash" title="${SIGNAL_HINT}">—</span></td>`;
+        ? `<td class="num">${sig(r.avgRsrp, signalHint(r.tech))}</td>
+           <td class="num">${sig(r.avgRsrq, signalHint(r.tech))}</td>`
+        : `<td class="num">${sig(r.avgRssi, SIGNAL_HINT)}</td>`;
       const pingCell = `<td class="num">${pill(`${Math.round(r.avgPing)} ms`, pingLevel(r.avgPing), WORDS.ping)}</td>`;
-      const place = cleanPlace(r.location) || r.location;
-      const geo = r.lat != null
-        ? `<button class="geo-link" data-lat="${r.lat}" data-lng="${r.lng}"
-             title="${escapeHtml(place)}, ${r.lat.toFixed(4)}, ${r.lng.toFixed(4)}
-Cliquer pour voir sur la carte">${escapeHtml(place)}</button>`
-        : `<span class="geo-none" title="${escapeHtml(place)}">${escapeHtml(place)}</span>`;
-      const lieuCell = `<td class="op-geo">${geo}</td>`;
 
       const open = expandedKey === key;
       const rawRow = open
@@ -585,7 +635,7 @@ Cliquer pour voir sur la carte">${escapeHtml(place)}</button>`
       return `<tr class="op-row" data-key="${escapeHtml(key)}" title="Cliquer pour ${open ? 'replier' : 'déplier'} les tests bruts">
         ${dateCell}${opCell}${techCell}
         <td class="num">${r.count}</td>
-        ${dlCell}${ulCell}${signalCell}${pingCell}${lieuCell}
+        ${dlCell}${ulCell}${signalCell}${pingCell}
       </tr>${rawRow}`;
     }).join('');
 
@@ -648,22 +698,12 @@ Cliquer pour voir sur la carte">${escapeHtml(place)}</button>`
 
     document.getElementById('op-reset').addEventListener('click', resetFilters);
 
-    // Un clic déplie/replie les tests bruts du groupe ; le lien lieu, lui,
-    // renvoie vers la carte (délégation : les lignes sont recréées à chaque
-    // rendu).
+    // Un clic déplie/replie les tests bruts du groupe (délégation : les
+    // lignes sont recréées à chaque rendu). Colonne « Lieu » retirée le
+    // 12/11 : plus de renvoi carte depuis ce tableau.
     document.querySelector('#operators-table tbody').addEventListener('click', (e) => {
       // Bouton de sortie de l'état vide : mêmes effets que le reset du haut.
       if (e.target.closest('#op-empty-reset')) { resetFilters(); return; }
-      const geoBtn = e.target.closest('.geo-link');
-      if (geoBtn) {
-        App.switchView('map');
-        MapView.showMeasurement(
-          parseFloat(geoBtn.dataset.lat),
-          parseFloat(geoBtn.dataset.lng),
-          geoBtn.textContent.trim(),
-        );
-        return;
-      }
       const tr = e.target.closest('tr.op-row');
       if (!tr) return;
       expandedKey = expandedKey === tr.dataset.key ? null : tr.dataset.key;
@@ -683,12 +723,12 @@ Cliquer pour voir sur la carte">${escapeHtml(place)}</button>`
   function exportRows() {
     const mobile = state.netType === 'mobile';
     const cols = mobile
-      ? ['Date', 'Opérateur', 'Techno', 'Tests', 'Download (Mb/s)', 'Upload (Mb/s)', 'RSRP (dBm)', 'RSRQ (dB)', 'Latence (ms)', 'Lieu']
-      : ['Date', 'FAI', 'Techno', 'Tests', 'Download (Mb/s)', 'Upload (Mb/s)', 'RSSI (dBm)', 'Latence (ms)', 'Lieu'];
+      ? ['Date', 'Opérateur', 'Techno', 'Tests', 'Download (Mb/s)', 'Upload (Mb/s)', 'RSRP (dBm)', 'RSRQ (dB)', 'Latence (ms)']
+      : ['Date', 'FAI', 'Techno', 'Tests', 'Download (Mb/s)', 'Upload (Mb/s)', 'RSSI (dBm)', 'Latence (ms)'];
     const line = (r) => mobile
-      ? [r.dateLabel, r.operator, r.tech, r.count, r.avgDl, r.avgUl, null, null, Math.round(r.avgPing), r.location]
-      : [r.dateLabel, r.operator, r.tech, r.count, r.avgDl, r.avgUl, null, Math.round(r.avgPing), r.location];
-    // null = signal pas encore diffusé par l'API : exporté « — » comme à l'écran.
+      ? [r.dateLabel, r.operator, r.tech, r.count, r.avgDl, r.avgUl, r.avgRsrp, r.avgRsrq, Math.round(r.avgPing)]
+      : [r.dateLabel, r.operator, r.tech, r.count, r.avgDl, r.avgUl, r.avgRssi, Math.round(r.avgPing)];
+    // null = aucun test du groupe n'a mesuré la valeur : exporté « — » comme à l'écran.
     return { mobile, cols, rows: rows.map(line) };
   }
 
