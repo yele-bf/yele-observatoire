@@ -281,7 +281,7 @@ const Forecast = (() => {
       <div class="fc-popup-when">${timeLabel(state.hour)}</div>
       <div class="fc-popup-main" style="color:${speedClass(p.dl).color}">${fmt(p.dl)} <small>Mb/s attendus</small></div>
       <div class="fc-popup-row">Envoi ${fmt(p.ul)} Mb/s · Latence ${fmt(p.ping, 0)} ms</div>
-      <div class="fc-popup-row ${arcep ? 'ok' : 'ko'}">${arcep ? 'Conforme' : 'Sous'} le seuil ARCEP 4G (2 / 1 Mb/s)</div>
+      <div class="fc-popup-row ${arcep ? 'ok' : 'ko'}">${arcep ? 'Conforme au seuil' : 'Sous le seuil'} ARCEP 4G (2 / 1 Mb/s)</div>
       ${sparkline(cap)}
       <table class="fc-factors">
         <tr><td>Capacité mesurée</td><td>${fmt(cap.dl)} Mb/s</td></tr>
@@ -334,10 +334,12 @@ const Forecast = (() => {
       : 'Aucune mesure pour ce filtre';
   }
 
-  function buildChips(boxId, values, key) {
+  function buildChips(boxId, values, key, allLabel) {
     const box = document.getElementById(boxId);
     box.innerHTML = '';
-    [['', 'Tous']].concat(values.map((v) => (Array.isArray(v) ? v : [v, v]))).forEach(([val, label]) => {
+    // « Tous » (opérateurs) ou « Toutes » (technologies, comme sur les vues
+    // Comparatif et Historique).
+    [['', allLabel]].concat(values.map((v) => (Array.isArray(v) ? v : [v, v]))).forEach(([val, label]) => {
       const b = document.createElement('button');
       b.className = 'chip' + (state[key] === val ? ' active' : '');
       b.textContent = label;
@@ -378,8 +380,8 @@ const Forecast = (() => {
       try {
         await Promise.all([loadSamples(), loadWeather()]);
         slider.max = weather.times.length - 1;
-        buildChips('fc-operators', ['Orange BF SA', 'Telecel Faso SA', 'Moov Africa SA'], 'operator');
-        buildChips('fc-techs', ['4G', '3G', '2G'], 'tech');
+        buildChips('fc-operators', ['Orange BF SA', 'Telecel Faso SA', 'Moov Africa SA'], 'operator', 'Tous');
+        buildChips('fc-techs', ['4G', '3G', '2G'], 'tech', 'Toutes');
         document.getElementById('fc-samples').textContent = samples.length;
         loading.style.display = 'none';
         render();
