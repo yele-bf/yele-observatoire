@@ -121,10 +121,42 @@ const Stats = (() => {
     el.hidden = false;
   }
 
-  // Signal non diffusé (KPIs + colonnes du tableau) : « — » assumé avec
-  // infobulle, comme sur le Comparatif. Le texte est répliqué ici plutôt
-  // qu'importé : quality.js est partagé, ces libellés sont propres à la vue.
-  const SIGNAL_HINT = "Mesuré par l'app, pas encore diffusé par l'API (extension serveur à venir) - bientôt affiché ici";
+  // Signal (KPIs + colonnes du tableau) : « — » tant qu'aucun test ne porte
+  // la valeur, avec infobulle qui explique le tiret (pas une panne côté
+  // page). ISS-01 : l'API diffuse désormais rsrp/rsrq/rssi consolidés, les
+  // moyennes se remplissent donc toutes seules avec les nouveaux tests.
+  const SIGNAL_HINT = "L'app mesure cette valeur ; « — » tant qu'aucun test géolocalisé ne l'a transmise";
+
+  // ── KPIs signal (RSRP / RSRQ / RSSI) ────────────────────────────────────────
+  // Moyennes calculées sur les tests géolocalisés qui PORTENT la valeur
+  // (l'API ne fournit pas ces moyennes dans /summary). RSRP : repli sur
+  // signalDbm des tests cellulaires (l'ancienne voie de diffusion), comme
+  // dans l'Historique. Sans valeur mesurée, la carte garde son « — ».
+  function renderSignalKpis(points) {
+    const mean = (keep) => {
+      const vals = points.map(keep).filter((v) => v != null);
+      return vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null;
+    };
+    const isCell = (p) => /^[2345]G\+?$/.test(String(p.networkType || '').trim());
+    const rsrp = mean((p) => {
+      if (p.rsrp != null) return Number(p.rsrp);
+      return isCell(p) && Number(p.signalDbm) ? Number(p.signalDbm) : null;
+    });
+    const rsrq = mean((p) => (p.rsrq != null ? Number(p.rsrq) : null));
+    const rssi = mean((p) => (p.rssi != null ? Number(p.rssi) : null));
+
+    [['kpi-rsrp', rsrp], ['kpi-rsrq', rsrq], ['kpi-rssi', rssi]].forEach(([id, v]) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      if (v == null) {
+        el.textContent = '—';
+        el.classList.add('q-dash');
+      } else {
+        el.textContent = String(Math.round(v));
+        el.classList.remove('q-dash');
+      }
+    });
+  }
 
   // ── Agrégation depuis les points normalisés (A) ────────────────────────────
 
@@ -144,20 +176,27 @@ const Stats = (() => {
 
   // Un agrégat par opérateur : moyennes pondérées par test + latence.
   // (Les percentiles du débit ont été retirés du tableau ET de l'infobulle,
-  // décision du 11/11.)
+  // décision du 11/11.) Signal ISS-01 : moyennes des tests qui portent la
+  // valeur, null si aucun — « — » à l'écran, jamais un zéro trompeur.
   function aggregateOperators(points) {
     const byOp = {};
     points.forEach((p) => {
       const a = byOp[p.operator || 'Inconnu'] = byOp[p.operator || 'Inconnu']
-        || { n: 0, sDl: 0, sUl: 0, sPing: 0 };
+        || { n: 0, sDl: 0, sUl: 0, sPing: 0, rsrp: [], rsrq: [], rssi: [] };
       a.n += 1;
       a.sDl += Number(p.download) || 0;
       a.sUl += Number(p.upload) || 0;
       a.sPing += Number(p.ping) || 0;
+      if (p.rsrp != null) a.rsrp.push(Number(p.rsrp));
+      else if (/^[2345]G\+?$/.test(String(p.networkType || '').trim()) && Number(p.signalDbm)) a.rsrp.push(Number(p.signalDbm));
+      if (p.rsrq != null) a.rsrq.push(Number(p.rsrq));
+      if (p.rssi != null) a.rssi.push(Number(p.rssi));
     });
+    const mean = (arr) => (arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : null);
     return Object.entries(byOp).map(([operator, a]) => ({
       operator, n: a.n,
       avgDl: a.sDl / a.n, avgUl: a.sUl / a.n, avgPing: a.sPing / a.n,
+      avgRsrp: mean(a.rsrp), avgRsrq: mean(a.rsrq), avgRssi: mean(a.rssi),
     })).sort((x, y) => y.avgDl - x.avgDl);
   }
 
@@ -372,8 +411,8 @@ const Stats = (() => {
     App.toast(`Comparatif filtré sur ${t.name === 'WiFi' ? 'le Fixe (WiFi)' : t.name}`);
   }
 
-  // Tableau avancé (A) : moyennes par opérateur, colonnes signal « — » tant
-  // que l'API ne diffuse pas ; percentiles volontairement absents (11/11).
+  // Tableau avancé (A) : moyennes par opérateur, colonnes signal réelles
+  // (ISS-01) avec repli « — » ; percentiles volontairement absents (11/11).
   function renderAdvanced(points) {
     const tbody = document.querySelector('#advanced-table tbody');
     try {
@@ -382,18 +421,23 @@ const Stats = (() => {
         tbody.innerHTML = '<tr><td colspan="8" style="color:var(--text-soft)">Aucune donnée disponible.</td></tr>';
         return;
       }
-      tbody.innerHTML = opsData.map((o) => `
+      tbody.innerHTML = opsData.map((o) => {
+        const sig = (v) => v == null
+          ? `<span class="q-dash" title="${SIGNAL_HINT}">—</span>`
+          : `<span title="Moyenne des tests qui portent la valeur">${Math.round(v)}</span>`;
+        return `
         <tr>
           <td><span class="op-dot" style="background:${operatorColor(o.operator)}"></span>
               <b style="color:var(--navy)">${escapeHtml(o.operator)}</b></td>
           <td class="num">${o.n.toLocaleString('fr-FR')}</td>
           <td class="num"><b>${fmt1(o.avgDl)}</b></td>
           <td class="num">${fmt1(o.avgUl)}</td>
-          <td class="num"><span class="q-dash" title="${SIGNAL_HINT}">—</span></td>
-          <td class="num"><span class="q-dash" title="${SIGNAL_HINT}">—</span></td>
-          <td class="num"><span class="q-dash" title="${SIGNAL_HINT}">—</span></td>
+          <td class="num">${sig(o.avgRsrp)}</td>
+          <td class="num">${sig(o.avgRsrq)}</td>
+          <td class="num">${sig(o.avgRssi)}</td>
           <td class="num">${Math.round(o.avgPing)} ms</td>
-        </tr>`).join('');
+        </tr>`;
+      }).join('');
     } catch (e) {
       tbody.innerHTML = '';
       blockError('adv-body', e.message);
@@ -494,6 +538,7 @@ const Stats = (() => {
       loadOperatorsChart(points),
       loadNetworkChart(points),
     ]);
+    renderSignalKpis(points);
     renderAdvanced(points);
   }
 
@@ -650,10 +695,11 @@ const Stats = (() => {
         : null;
     }
     if (block === 'avance') {
-      // Signal exporté « — » (null) tant que l'API ne diffuse pas les mesures.
+      // Signal réel (ISS-01) ; null = aucun test ne porte la valeur, exporté
+      // « — » comme à l'écran.
       return opsData.length
         ? { cols: ['Opérateur', 'Tests', 'Download moyen (Mb/s)', 'Envoi moyen (Mb/s)', 'RSRP moyen (dBm)', 'RSRQ moyen (dB)', 'RSSI moyen (dBm)', 'Latence moyenne (ms)'],
-            rows: opsData.map((o) => [o.operator, o.n, o.avgDl, o.avgUl, null, null, null, Math.round(o.avgPing)]) }
+            rows: opsData.map((o) => [o.operator, o.n, o.avgDl, o.avgUl, o.avgRsrp, o.avgRsrq, o.avgRssi, Math.round(o.avgPing)]) }
         : null;
     }
     return null;

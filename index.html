@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="assets/vendor/leaflet.css"/>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=11">
+  <link rel="stylesheet" href="css/style.css?v=12">
   <script>
     // Thème appliqué AVANT le premier rendu : évite le flash de mauvaise
     // couleur au chargement. Priorité : choix mémorisé → préférence système.
@@ -163,9 +163,11 @@
 <section class="view view-operators" id="view-operators">
   <div class="page-head">
     <h1>Comparatif</h1>
-    <p>Quel réseau est le plus rapide, où, et quand ? Comparez Orange BF, Telecel Faso,
-       Moov Africa et les fournisseurs d'accès fixe à partir des tests des utilisateurs
-       Yélé, puis cliquez un lieu pour le retrouver sur la carte.</p>
+    <p>Quel réseau est le plus rapide, où, et quand ? Les opérateurs mobiles
+       (Orange BF SA, Moov Africa SA, Telecel Faso SA) sont comparés <b>entre eux</b>,
+       et les fournisseurs d'accès fixe (Orange BF SA, ANPTIC…) <b>entre eux</b>,
+       à partir des tests des utilisateurs Yélé. Filtrez par réseau, technologie
+       et période, puis cliquez un lieu pour le retrouver sur la carte.</p>
   </div>
 
   <div class="op-compare-wrap">
@@ -178,6 +180,8 @@
 
   <div class="card">
     <div class="op-filters">
+      <!-- 4 blocs bien espacés horizontalement (demande du 12/11) :
+           Réseau → Technologie → Période → Réinitialiser à la fin. -->
       <div class="op-filter-block">
         <div class="op-filter-label">Réseau</div>
         <div class="toggle-group" id="op-net-type">
@@ -187,10 +191,11 @@
         <select class="period-select" id="op-filter-operator">
           <option value="__all__">Tous les opérateurs</option>
         </select>
-        <div id="op-tech-zone">
-          <div class="op-filter-label" style="margin-top:12px">Technologie</div>
-          <div class="op-chips" id="op-tech-chips"></div>
-        </div>
+      </div>
+
+      <div class="op-filter-block" id="op-tech-zone">
+        <div class="op-filter-label">Technologie</div>
+        <div class="op-chips" id="op-tech-chips"></div>
       </div>
 
       <div class="op-filter-block">
@@ -238,7 +243,10 @@
 <section class="view view-stats" id="view-stats">
   <div class="page-head">
     <h1>Statistiques</h1>
-    <p>Vue d'ensemble de la qualité des réseaux : opérateurs ARCEP, technologies et périodes, calculées à partir des tests géolocalisés des utilisateurs Yélé. Survolez les graphes pour le détail, cliquez une tranche du donut pour ouvrir le Comparatif.</p>
+    <p>Vue d'ensemble de la qualité des réseaux : indicateurs de qualité des
+       opérateurs et des FAI, calculés à partir des tests géolocalisés des
+       utilisateurs Yélé. Survolez les graphes pour le détail, cliquez une tranche
+       du donut pour ouvrir le Comparatif.</p>
   </div>
 
   <!-- Croquis v2 (11/11/2026) : 8 cartes — RSRP/RSRQ (base 4G/5G) et RSSI
@@ -249,9 +257,9 @@
     <div class="kpi-card"><div class="kpi-top"><span class="kpi-value" id="kpi-dl">·</span><span class="qv" id="kpi-dl-pill" hidden></span></div><div class="kpi-label">Download moyen (Mb/s)</div></div>
     <div class="kpi-card"><div class="kpi-top"><span class="kpi-value" id="kpi-ul">·</span><span class="qv" id="kpi-ul-pill" hidden></span></div><div class="kpi-label">Upload moyen (Mb/s)</div></div>
     <div class="kpi-card"><div class="kpi-top"><span class="kpi-value" id="kpi-ping">·</span><span class="qv" id="kpi-ping-pill" hidden></span></div><div class="kpi-label">Latence moyenne (ms)</div></div>
-    <div class="kpi-card"><div class="kpi-top"><span class="kpi-value q-dash" id="kpi-rsrp" title="Puissance du signal 4G/5G, moyenne des tests cellulaires. Mesuré par l'app, pas encore diffusé par l'API (extension serveur à venir).">—</span></div><div class="kpi-label">RSRP moyen (dBm) — 4G/5G</div></div>
-    <div class="kpi-card"><div class="kpi-top"><span class="kpi-value q-dash" id="kpi-rsrq" title="Qualité du signal 4G/5G, moyenne des tests cellulaires. Mesuré par l'app, pas encore diffusé par l'API (extension serveur à venir).">—</span></div><div class="kpi-label">RSRQ moyen (dB) — 4G/5G</div></div>
-    <div class="kpi-card"><div class="kpi-top"><span class="kpi-value q-dash" id="kpi-rssi" title="Puissance du signal WiFi, moyenne des tests fixes. Mesuré par l'app, pas encore diffusé par l'API (extension serveur à venir).">—</span></div><div class="kpi-label">RSSI moyen (dBm) — WiFi</div></div>
+    <div class="kpi-card"><div class="kpi-top"><span class="kpi-value q-dash" id="kpi-rsrp" title="Puissance du signal 4G/5G (dBm), moyenne des tests cellulaires géolocalisés où l'app a mesuré la valeur. « — » tant qu'aucun test ne l'a mesurée.">—</span></div><div class="kpi-label">RSRP moyen (dBm) — 4G/5G</div></div>
+    <div class="kpi-card"><div class="kpi-top"><span class="kpi-value q-dash" id="kpi-rsrq" title="Qualité du signal 4G/5G (dB), moyenne des tests cellulaires géolocalisés où l'app a mesuré la valeur. « — » tant qu'aucun test ne l'a mesurée.">—</span></div><div class="kpi-label">RSRQ moyen (dB) — 4G/5G</div></div>
+    <div class="kpi-card"><div class="kpi-top"><span class="kpi-value q-dash" id="kpi-rssi" title="Puissance du signal WiFi (dBm), moyenne des tests fixes géolocalisés où l'app a mesuré la valeur. « — » tant qu'aucun test ne l'a mesurée.">—</span></div><div class="kpi-label">RSSI moyen (dBm) — WiFi</div></div>
   </div>
 
   <div class="charts-grid">
@@ -326,9 +334,9 @@
             <th>Opérateur</th><th class="num">Tests</th>
             <th class="num" title="Vitesse de réception moyenne. Plus haut = mieux.">Download moyen (Mb/s)</th>
             <th class="num" title="Vitesse d'émission moyenne. Plus haut = mieux.">Envoi moyen (Mb/s)</th>
-            <th class="num" title="Puissance du signal 4G/5G (dBm), moyenne des tests cellulaires. Plus proche de 0 = mieux. Mesuré par l'app, pas encore diffusé par l'API.">RSRP moyen (dBm)</th>
-            <th class="num" title="Qualité du signal 4G/5G (dB), moyenne des tests cellulaires. Plus proche de 0 = mieux. Mesuré par l'app, pas encore diffusé par l'API.">RSRQ moyen (dB)</th>
-            <th class="num" title="Puissance du signal WiFi (dBm), moyenne des tests fixes de l'opérateur. Plus proche de 0 = mieux. Mesuré par l'app, pas encore diffusé par l'API.">RSSI moyen (dBm)</th>
+            <th class="num" title="Puissance du signal 4G/5G (dBm), moyenne des tests cellulaires. Plus proche de 0 = mieux. « — » tant qu'aucun test de l'opérateur ne l'a mesurée.">RSRP moyen (dBm)</th>
+            <th class="num" title="Qualité du signal 4G/5G (dB), moyenne des tests cellulaires. Plus proche de 0 = mieux. « — » tant qu'aucun test de l'opérateur ne l'a mesurée.">RSRQ moyen (dB)</th>
+            <th class="num" title="Puissance du signal WiFi (dBm), moyenne des tests fixes de l'opérateur. Plus proche de 0 = mieux. « — » tant qu'aucun test de l'opérateur ne l'a mesurée.">RSSI moyen (dBm)</th>
             <th class="num" title="Temps de réponse moyen du réseau. Plus bas = mieux.">Latence moyenne (ms)</th>
           </tr></thead>
           <tbody></tbody>
@@ -347,6 +355,8 @@
 
   <div class="card">
     <div class="op-filters">
+      <!-- 4 blocs bien espacés horizontalement (demande du 12/11) :
+           Réseau → Technologie → Période → Réinitialiser à la fin. -->
       <div class="op-filter-block">
         <div class="op-filter-label">Réseau</div>
         <div class="toggle-group" id="hi-net-type">
@@ -356,10 +366,11 @@
         <select class="period-select" id="hi-filter-supplier">
           <option value="__all__">Tous les fournisseurs</option>
         </select>
-        <div id="hi-tech-zone">
-          <div class="op-filter-label" style="margin-top:12px">Technologie</div>
-          <div class="op-chips" id="hi-tech-chips"></div>
-        </div>
+      </div>
+
+      <div class="op-filter-block" id="hi-tech-zone">
+        <div class="op-filter-label">Technologie</div>
+        <div class="op-chips" id="hi-tech-chips"></div>
       </div>
 
       <div class="op-filter-block">
@@ -507,9 +518,9 @@
      n'envoie aucun en-tête no-cache, et un ancien js/app.js en cache avait
      privé le bouton thème de son handler). Monter v à chaque modif de JS. -->
 <script src="js/map.js?v=23"></script>
-<script src="js/operators.js?v=4"></script>
-<script src="js/stats.js?v=5"></script>
-<script src="js/history.js?v=3"></script>
+<script src="js/operators.js?v=5"></script>
+<script src="js/stats.js?v=6"></script>
+<script src="js/history.js?v=4"></script>
 <script src="js/forecast.js?v=1"></script>
 <script src="js/ai.js?v=2"></script>
 <script src="js/app.js?v=2"></script>
