@@ -14,6 +14,11 @@
 //   E - État d'erreur PAR BLOC : « Données indisponibles · Réessayer » au lieu
 //       d'un bloc muet quand le serveur dort.
 //   F - Bordure du donut suit le thème (fond de la carte, pas blanc dur).
+// Demande du 13/11 : plus de mélange Mobile + Fixe. Une bascule Catégorie
+// recalcule TOUTE la page (KPIs, évolution, graphe opérateurs, donut,
+// tableau avancé, exports) sur la seule catégorie choisie. Les indicateurs
+// viennent des points géolocalisés (seule source où la catégorie est
+// connue test par test) — les libellés le rappellent.
 // KPIs étendus à 8 cartes : RSRP/RSRQ (base 4G/5G) et RSSI (base WiFi)
 // affichés « — » tant que l'API ne diffuse pas le signal — l'infobulle
 // l'explique, ce n'est pas une panne.
@@ -27,9 +32,22 @@ const Stats = (() => {
   let operatorsChart = null;
   let networkChart = null;
   let tlDays = 30;
+  let netType = 'mobile';  // catégorie affichée : 'mobile' | 'fixe'
+  let allPoints = [];      // points géolocalisés (les deux catégories)
   let tlRows = [];    // série temporelle courante (période affichée) — exports
   let opsData = [];   // agrégat par opérateur (graphe + tableau)
   let netsData = [];  // agrégat par technologie (donut + clic)
+
+  // Réplique locale du critère cellulaire (map.js/operators.js) : une IIFE
+  // n'expose pas ses fonctions internes, le test tient en une ligne.
+  const isCellularTest = (p) => /^[2345]G\+?$/.test(String(p.networkType || '').trim());
+
+  // Points de la catégorie affichée : Mobile = tests cellulaires (2G-5G),
+  // Fixe = le reste (WiFi…).
+  function categoryPoints() {
+    const mobile = netType === 'mobile';
+    return allPoints.filter((p) => (mobile ? isCellularTest(p) : !isCellularTest(p)));
+  }
 
   // Copie du HTML initial des blocs (capturée au premier show) : un état
   // d'erreur remplace le contenu d'un bloc ; « Réessayer » le reconstruit.
@@ -127,11 +145,49 @@ const Stats = (() => {
   // moyennes se remplissent donc toutes seules avec les nouveaux tests.
   const SIGNAL_HINT = "L'app mesure cette valeur ; « — » tant qu'aucun test géolocalisé ne l'a transmise";
 
+  // ── KPIs de la catégorie (Mobile ou Fixe, demande du 13/11) ────────────────
+  // Calculés depuis les points géolocalisés de la catégorie — la source
+  // /summary ne connaît pas la catégorie. « — » tant qu'aucun test ne porte
+  // la valeur ; les pastilles qualité restent cachées au même titre.
+  function renderKpis(pts) {
+    const cat = netType === 'mobile' ? 'Mobile' : 'Fixe';
+    const mean = (fn) => {
+      const vals = pts.map(fn).filter((v) => v != null);
+      return vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null;
+    };
+    const todayKey = dayKey(new Date());
+    const todayN = pts.filter((p) => {
+      const d = parseTs(p.timestamp);
+      return !isNaN(d) && dayKey(d) === todayKey;
+    }).length;
+
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    const num = (v) => (v == null ? '—' : fmt1(v));
+    set('kpi-total-label', `Tests réalisés (${cat})`);
+    set('kpi-today-label', `Tests aujourd'hui (${cat})`);
+    set('kpi-total', pts.length.toLocaleString('fr-FR'));
+    set('kpi-today', todayN.toLocaleString('fr-FR'));
+    const dl = mean((p) => (p.download == null ? null : Number(p.download)));
+    const ul = mean((p) => (p.upload == null ? null : Number(p.upload)));
+    const ping = mean((p) => (p.ping == null ? null : Number(p.ping)));
+    set('kpi-dl', num(dl));
+    set('kpi-ul', num(ul));
+    set('kpi-ping', ping == null ? '—' : String(Math.round(ping)));
+    // Pastilles qualité : cachées tant qu'aucune valeur n'est disponible.
+    [['kpi-dl-pill', dl, dlLevel], ['kpi-ul-pill', ul, ulLevel], ['kpi-ping-pill', ping, pingLevel]]
+      .forEach(([id, v, level]) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (v == null) { el.hidden = true; return; }
+        setPill(id, level(v));
+      });
+  }
+
   // ── KPIs signal (RSRP / RSRQ / RSSI) ────────────────────────────────────────
-  // Moyennes calculées sur les tests géolocalisés qui PORTENT la valeur
-  // (l'API ne fournit pas ces moyennes dans /summary). RSRP : repli sur
-  // signalDbm des tests cellulaires (l'ancienne voie de diffusion), comme
-  // dans l'Historique. Sans valeur mesurée, la carte garde son « — ».
+  // Moyennes calculées sur les tests géolocalisés de la catégorie qui PORTENT
+  // la valeur. RSRP : repli sur signalDbm des tests cellulaires (l'ancienne
+  // voie de diffusion), comme dans l'Historique. Sans valeur mesurée, la
+  // carte garde son « — ».
   function renderSignalKpis(points) {
     const mean = (keep) => {
       const vals = points.map(keep).filter((v) => v != null);
@@ -216,27 +272,28 @@ const Stats = (() => {
 
   // ── Chargements par bloc (chaque bloc gère SA panne, E) ─────────────────────
 
-  async function loadSummary() {
-    try {
-      const s = await API.summary();
-      const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-      set('kpi-total', (s.totalTests ?? 0).toLocaleString('fr-FR'));
-      set('kpi-today', (s.testsToday ?? 0).toLocaleString('fr-FR'));
-      set('kpi-dl', fmt1(s.avgDownload ?? 0));
-      set('kpi-ul', fmt1(s.avgUpload ?? 0));
-      set('kpi-ping', String(Math.round(s.avgPing ?? 0)));
-      setPill('kpi-dl-pill', dlLevel(s.avgDownload ?? 0));
-      setPill('kpi-ul-pill', ulLevel(s.avgUpload ?? 0));
-      setPill('kpi-ping-pill', pingLevel(s.avgPing ?? 0));
-    } catch (e) {
-      blockError('kpi-grid', e.message);
-    }
+  // Série temporelle de la catégorie : agrégée depuis les points géolocalisés
+  // (la source /timeline du backend ne connaît pas la catégorie). Même
+  // fenêtre glissante que la bascule 7 j / 30 j / …
+  function timelineFromPoints(pts) {
+    const cutoff = Date.now() - tlDays * 86400000;
+    const byDay = {};
+    pts.forEach((p) => {
+      const d = parseTs(p.timestamp);
+      if (isNaN(d) || d.getTime() < cutoff) return;
+      const k = dayKey(d);
+      const a = byDay[k] = byDay[k] || { n: 0, sDl: 0 };
+      a.n += 1;
+      a.sDl += Number(p.download) || 0;
+    });
+    return Object.entries(byDay).sort((x, y) => x[0].localeCompare(y[0]))
+      .map(([date, a]) => ({ date, count: a.n, avgDownload: a.n ? a.sDl / a.n : 0 }));
   }
 
-  async function loadTimeline(days) {
+  function loadTimeline() {
     const wrap = document.getElementById('tl-wrap');
     try {
-      const data = (await API.timeline(days)) || [];
+      const data = timelineFromPoints(categoryPoints());
       tlRows = data;
       if (timelineChart) timelineChart.destroy();
       timelineChart = new Chart(document.getElementById('chart-timeline'), {
@@ -286,10 +343,11 @@ const Stats = (() => {
     }
   }
 
-  // Graphe opérateurs (A + C + percentiles en infobulle).
-  async function loadOperatorsChart(points) {
+  // Graphe opérateurs (A + C + percentiles en infobulle) — catégorie affichée.
+  async function loadOperatorsChart() {
     const wrap = document.getElementById('ops-wrap');
     try {
+      const points = categoryPoints();
       opsData = aggregateOperators(points);
       if (operatorsChart) operatorsChart.destroy();
       operatorsChart = new Chart(document.getElementById('chart-operators'), {
@@ -330,10 +388,12 @@ const Stats = (() => {
     }
   }
 
-  // Donut technologie (A + F + infobulle + clic → Comparatif filtré).
-  async function loadNetworkChart(points) {
+  // Donut technologie (A + F + infobulle + clic → Comparatif filtré) —
+  // catégorie affichée : mobile = 2G/3G/4G/5G, fixe = WiFi/Non précisé.
+  async function loadNetworkChart() {
     const wrap = document.getElementById('net-wrap');
     try {
+      const points = categoryPoints();
       netsData = aggregateNetworks(points);
       if (networkChart) networkChart.destroy();
       networkChart = new Chart(document.getElementById('chart-network'), {
@@ -411,12 +471,13 @@ const Stats = (() => {
     App.toast(`Comparatif filtré sur ${t.name === 'WiFi' ? 'le Fixe (WiFi)' : t.name}`);
   }
 
-  // Tableau avancé (A) : moyennes par opérateur, colonnes signal réelles
-  // (ISS-01) avec repli « — » ; percentiles volontairement absents (11/11).
-  function renderAdvanced(points) {
+  // Tableau avancé (A) : moyennes par opérateur de la catégorie, colonnes
+  // signal réelles (ISS-01) avec repli « — » ; percentiles volontairement
+  // absents (11/11).
+  function renderAdvanced() {
     const tbody = document.querySelector('#advanced-table tbody');
     try {
-      if (!opsData.length) opsData = aggregateOperators(points);
+      if (!opsData.length) opsData = aggregateOperators(categoryPoints());
       if (!opsData.length) {
         tbody.innerHTML = '<tr><td colspan="8" style="color:var(--text-soft)">Aucune donnée disponible.</td></tr>';
         return;
@@ -441,7 +502,10 @@ const Stats = (() => {
     } catch (e) {
       tbody.innerHTML = '';
       blockError('adv-body', e.message);
+      return;
     }
+    // Colonnes figées (13/11) : le décalage suit la largeur réelle du FAI.
+    freezeFirstColumns(document.getElementById('advanced-table'));
   }
 
   // ── États d'erreur par bloc (E) ─────────────────────────────────────────────
@@ -498,9 +562,32 @@ const Stats = (() => {
         document.querySelectorAll('#timeline-days .toggle').forEach((b) => b.classList.remove('active'));
         btn.classList.add('active');
         tlDays = parseInt(btn.dataset.days, 10);
-        loadTimeline(tlDays);
+        loadTimeline();
       });
     });
+    // Bascule Catégorie (demande du 13/11) : Mobile / Fixe, toute la page
+    // se recalcule sur la catégorie choisie.
+    document.querySelectorAll('#st-net-type .toggle').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        if (btn.dataset.net === netType) return;
+        document.querySelectorAll('#st-net-type .toggle').forEach((b) => b.classList.remove('active'));
+        btn.classList.add('active');
+        netType = btn.dataset.net;
+        refreshCategory();
+      });
+    });
+  }
+
+  // Recalcule TOUS les blocs sur la catégorie affichée : c'est le point de
+  // sortie unique de la bascule Mobile/Fixe (comme Operators.refresh()).
+  function refreshCategory() {
+    const pts = categoryPoints();
+    renderKpis(pts);
+    renderSignalKpis(pts);
+    loadTimeline();
+    loadOperatorsChart();
+    loadNetworkChart();
+    renderAdvanced();
   }
 
   async function show() {
@@ -519,27 +606,20 @@ const Stats = (() => {
       };
     }
 
-    loadSummary();
-    loadTimeline(tlDays);
     bindTimelineToggle();
 
-    // Un seul fetch de points nourrit trois blocs ; une panne le marque
-    // distinctement sur chacun (E), les KPIs et l'évolution restent lisibles.
-    let points = [];
+    // Un seul fetch de points nourrit tous les blocs ; une panne le marque
+    // distinctement sur chacun (E), la bascule de catégorie reste utilisable.
     try {
-      points = await loadPoints();
+      allPoints = await loadPoints();
     } catch (e) {
+      blockError('kpi-grid', e.message);
       blockError('ops-wrap', e.message);
       blockError('net-wrap', e.message);
       blockError('adv-body', e.message);
       return;
     }
-    await Promise.allSettled([
-      loadOperatorsChart(points),
-      loadNetworkChart(points),
-    ]);
-    renderSignalKpis(points);
-    renderAdvanced(points);
+    refreshCategory();
   }
 
   /// Oblige la vue à tout recalculer au prochain affichage. Les graphiques

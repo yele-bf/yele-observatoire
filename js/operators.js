@@ -407,6 +407,7 @@ const Operators = (() => {
 
   function renderCompare() {
     const pts = filtered();
+    const mobile = state.netType === 'mobile';
 
     // Palmarès de la catégorie courante (indépendant des filtres de période :
     // un opérateur reste listé même si la période le vide de ses tests).
@@ -435,17 +436,29 @@ const Operators = (() => {
     const stats = {};
     pts.forEach((p) => {
       const acc = stats[p.operator || 'Inconnu']
-        = stats[p.operator || 'Inconnu'] || { sumDl: 0, sumPing: 0, count: 0 };
+        = stats[p.operator || 'Inconnu'] || { sumDl: 0, sumUl: 0, sumPing: 0, count: 0, rsrp: [], rsrq: [], rssi: [] };
       acc.sumDl += Number(p.download) || 0;
+      acc.sumUl += Number(p.upload) || 0;
       acc.sumPing += Number(p.ping) || 0;
+      // Signal détaillé (ISS-01) : moyennes sur les seuls tests qui ONT la
+      // valeur ; null = aucun — « — » à l'écran, jamais un zéro trompeur.
+      if (p.rsrp != null) acc.rsrp.push(Number(p.rsrp));
+      if (p.rsrq != null) acc.rsrq.push(Number(p.rsrq));
+      if (p.rssi != null) acc.rssi.push(Number(p.rssi));
       acc.count += 1;
     });
 
+    const meanOf = (a) => (a.length ? a.reduce((s, v) => s + v, 0) / a.length : null);
     const cards = roster.map((operator) => {
       const a = stats[operator];
       return a
-        ? { operator, avgDl: a.sumDl / a.count, avgPing: a.sumPing / a.count, count: a.count }
-        : { operator, avgDl: null, avgPing: null, count: 0 };
+        ? { operator,
+            avgDl: a.sumDl / a.count, avgUl: a.sumUl / a.count,
+            avgPing: a.sumPing / a.count,
+            avgRsrp: meanOf(a.rsrp), avgRsrq: meanOf(a.rsrq), avgRssi: meanOf(a.rssi),
+            count: a.count }
+        : { operator, avgDl: null, avgUl: null, avgPing: null,
+            avgRsrp: null, avgRsrq: null, avgRssi: null, count: 0 };
     }).sort((a, b) => (b.avgDl ?? -1) - (a.avgDl ?? -1));
 
     const wrap = document.getElementById('op-compare');
@@ -459,6 +472,8 @@ const Operators = (() => {
       const maxDl = Math.max(...cards.map((c) => c.avgDl || 0), 1);
       // Décimales à la française (« 22,1 »), comme sur la vue Statistiques.
       const fr1 = (v) => v.toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+      // Signal arrondi, « — » tant qu'aucun test de l'opérateur ne l'a mesurée.
+      const sigI = (v) => (v == null ? '—' : Math.round(v).toLocaleString('fr-FR'));
       // Podium : les 3 premiers, même carte qu'aujourd'hui + rang en coin ;
       // un opérateur sans test est grisé, « Aucun test » à la place des valeurs.
       wrap.innerHTML = cards.slice(0, 3).map((c, i) => {
@@ -467,7 +482,6 @@ const Operators = (() => {
         return `
           <div class="op-card${i === 0 && cards.length > 1 && !vide ? ' op-card-best' : ''}${vide ? ' op-card-none' : ''}">
             <div class="op-rank">${rankLabel(i)}</div>
-            ${i === 0 && cards.length > 1 && !vide ? '<div class="op-best-badge">Réseau le plus rapide (débit moyen ↓)</div>' : ''}
             <div class="op-card-name">
               <span class="op-dot" style="background:${operatorColor(c.operator)}"></span>
               <span>${escapeHtml(c.operator)}</span>
@@ -476,18 +490,30 @@ const Operators = (() => {
               ? '<div class="op-card-none-txt">Aucun test</div>'
               : `<b>${fr1(c.avgDl)}</b><small>Mb/s</small>`}</div>
             <div class="op-bar">${vide ? '' : `<span class="op-bar-fill" style="width:${(c.avgDl / maxDl) * 100}%;background:${qualityColor(lvl)}"></span>`}</div>
-            <div class="op-card-stats">${vide ? '' : `
-              <div><b>${Math.round(c.avgPing)} ms</b><small>Latence</small></div>
-              <div><b>${c.count.toLocaleString('fr-FR')}</b><small>Tests</small></div>`}</div>
+            <div class="op-card-stats">${vide ? '' : (mobile
+              ? `<div><b>${fr1(c.avgUl)}</b><small>Envoi (Mb/s)</small></div>
+                 <div><b>${sigI(c.avgRsrp)}</b><small>RSRP (dBm)</small></div>
+                 <div><b>${sigI(c.avgRsrq)}</b><small>RSRQ (dB)</small></div>
+                 <div><b>${Math.round(c.avgPing)} ms</b><small>Latence</small></div>
+                 <div><b>${c.count.toLocaleString('fr-FR')}</b><small>Tests</small></div>`
+              : `<div><b>${fr1(c.avgUl)}</b><small>Envoi (Mb/s)</small></div>
+                 <div><b>${sigI(c.avgRssi)}</b><small>RSSI (dBm)</small></div>
+                 <div><b>${Math.round(c.avgPing)} ms</b><small>Latence</small></div>
+                 <div><b>${c.count.toLocaleString('fr-FR')}</b><small>Tests</small></div>`)}</div>
           </div>`;
       }).join('');
 
       // Classement global : tous les opérateurs de la catégorie, du 1ᵉʳ au
       // dernier (les rangs 4ᵉ, 5ᵉ… existent dès qu'il y a plus de 3 acteurs).
+      // Colonnes enrichies (demande du 13/11) : Envoi + signal — RSRP/RSRQ
+      // en mobile, RSSI en fixe (mêmes règles que le tableau ci-dessous).
       globalBox.hidden = false;
       if (globalTitle) globalTitle.style.display = '';
+      const sigHead = mobile
+        ? '<span class="op-global-sig">RSRP (dBm)</span><span class="op-global-rq">RSRQ (dB)</span>'
+        : '<span class="op-global-sig">RSSI (dBm)</span>';
       globalBox.innerHTML = `
-        <div class="op-global-head"><span class="op-global-rank">Rang</span><span class="op-global-name">Opérateur</span><span class="op-global-num">Débit ↓</span><span class="op-global-ms">Latence</span><span class="op-global-count">Tests</span></div>`
+        <div class="op-global-head"><span class="op-global-rank">Rang</span><span class="op-global-name">${mobile ? 'Opérateur' : 'FAI'}</span><span class="op-global-num">Tél. (Mb/s)</span><span class="op-global-ul">Envoi (Mb/s)</span>${sigHead}<span class="op-global-ms">Latence (ms)</span><span class="op-global-count">Tests</span></div>`
         + cards.map((c, i) => {
           const vide = c.avgDl == null;
           return `
@@ -497,7 +523,11 @@ const Operators = (() => {
               <span class="op-dot" style="background:${operatorColor(c.operator)}"></span>${escapeHtml(c.operator)}${i === 0 && !vide ? '<span class="op-global-medal">Le plus rapide ↓</span>' : ''}
             </span>
             <span class="op-global-num">${vide ? '<small>Aucun test</small>' : `<b>${fr1(c.avgDl)}</b> <small>Mb/s</small>`}</span>
-            <span class="op-global-ms">${vide ? '·' : `${Math.round(c.avgPing)} ms`}</span>
+            <span class="op-global-ul">${vide ? '·' : fr1(c.avgUl)}</span>
+            ${mobile
+              ? `<span class="op-global-sig">${vide ? '·' : sigI(c.avgRsrp)}</span><span class="op-global-rq">${vide ? '·' : sigI(c.avgRsrq)}</span>`
+              : `<span class="op-global-sig">${vide ? '·' : sigI(c.avgRssi)}</span>`}
+            <span class="op-global-ms">${vide ? '·' : Math.round(c.avgPing)}</span>
             <span class="op-global-count">${vide ? '0' : c.count.toLocaleString('fr-FR')}</span>
           </div>`;
         }).join('');
@@ -643,6 +673,8 @@ const Operators = (() => {
     moreWrap.style.display = sorted.length > shown ? '' : 'none';
     document.getElementById('op-more-info').textContent =
       `${visible.length} ligne${visible.length > 1 ? 's' : ''} sur ${sorted.length}`;
+    // Colonnes figées (13/11) : le décalage suit la largeur réelle de la Date.
+    freezeFirstColumns(document.getElementById('operators-table'));
   }
 
   // ── Interactions ───────────────────────────────────────────────────────────

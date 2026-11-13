@@ -490,6 +490,12 @@ svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; 
    ne contraint sa largeur, la troncature n'a pas lieu d'être. */
 .history-filters .toggle-group { flex: none; }
 .history-filters .toggle { overflow: visible; text-overflow: clip; padding: 6px 12px; }
+/* Bascule Catégorie (Statistiques, demande du 13/11) : la rangée de filtres
+   compressait le bloc et « Mobile » passait à « Mo… ». Le groupe se
+   dimensionne sur son contenu (même logique que les filtres de l'Historique)
+   — la rangée .op-filters passe déjà à la ligne si la fenêtre est étroite. */
+#st-net-type { flex: none; }
+#st-net-type .toggle { overflow: visible; text-overflow: clip; padding: 6px 12px; }
 .toggle.active {
   background: var(--white); color: var(--green-dark);
   box-shadow: 0 1px 3px rgba(28, 28, 60, .14);
@@ -763,6 +769,31 @@ select.period-select option { background: var(--white); color: var(--text); }
    de KPI et des filtres varie, et une soustraction exacte serait fragile. */
 #view-operators .table-wrap { max-height: 56vh; }
 
+/* ─── Tableaux : en-têtes + 2 premières colonnes figés (demande du 13/11) ──
+   Le Comparatif faisait déjà défiler son tableau DANS le cadre (.table-wrap
+   max-height) : l'en-tête restait visible en scroll vertical ET horizontal.
+   Même cadre pour l'Historique, les Statistiques et l'Analyse IA.
+   Les 2 premières colonnes restent, elles, collées à GAUCHE pendant le
+   défilement horizontal (Date + Opérateur ; en Statistiques avancé,
+   Opérateur/FAI + Tests). Le décalage de la 2ᵉ colonne est mesuré au rendu
+   (freezeFirstColumns, quality.js) → variable --c1w posée sur <table>,
+   ce qui reste exact quelle que soit la largeur réelle de la 1ʳᵉ colonne. */
+#view-history .table-wrap, #view-stats .table-wrap, #view-ai .table-wrap { max-height: 56vh; }
+
+.data-table th:first-child, .data-table td:first-child { position: sticky; left: 0; z-index: 1; }
+.data-table th:nth-child(2), .data-table td:nth-child(2) { position: sticky; left: var(--c1w, 0px); z-index: 1; }
+/* Les coins (en-têtes des 2 colonnes figées) passent au-dessus de tout :
+   ils sont à la fois collés en haut et à gauche. */
+.data-table thead th:first-child, .data-table thead th:nth-child(2) { z-index: 4; }
+/* Fond opaque sur les cellules figées, sinon le contenu défile VISIBLE
+   en dessous — avec le même zébrage que la ligne et la même teinte au
+   survol, pour que la colonne figée se fonde dans la ligne. */
+.data-table tbody td:first-child, .data-table tbody td:nth-child(2) { background: var(--white); }
+.data-table tbody tr:nth-child(even) td:first-child,
+.data-table tbody tr:nth-child(even) td:nth-child(2) { background: var(--row-alt); }
+.data-table tbody tr:hover td:first-child,
+.data-table tbody tr:hover td:nth-child(2) { background: var(--green-light); }
+
 /* Résumé grand public : une carte par opérateur, triée du plus rapide au plus
    lent (débit moyen). Remplace les trois cartes de KPI, moins parlantes. */
 .op-compare-wrap { margin-bottom: 14px; }
@@ -800,7 +831,9 @@ select.period-select option { background: var(--white); color: var(--text); }
 .op-card-dl { font-size: 12px; color: var(--text-soft); }
 .op-card-dl b { font-size: 24px; font-weight: 800; color: var(--navy); margin-right: 5px; font-variant-numeric: tabular-nums; }
 .op-card-stats {
-  display: flex; gap: 22px; font-size: 12px; color: var(--text-soft);
+  /* 5 indicateurs depuis le 13/11 (Envoi, signal, Latence, Tests) : les
+     cellules passent à la ligne plutôt que de déborder de la carte. */
+  display: flex; flex-wrap: wrap; gap: 10px 20px; font-size: 12px; color: var(--text-soft);
 }
 .op-card-stats b { display: block; font-size: 14px; font-weight: 800; color: var(--text); font-variant-numeric: tabular-nums; }
 .op-card-stats small { font-size: 10.5px; }
@@ -841,13 +874,20 @@ select.period-select option { background: var(--white); color: var(--text); }
 .op-global-num b { font-size: 13px; color: var(--navy); }
 .op-global-num small, .op-global-ms, .op-global-count { color: var(--text-soft); font-variant-numeric: tabular-nums; }
 .op-global-num small { font-size: 10px; display: block; text-align: right; }
-.op-global-ms { flex: none; width: 64px; text-align: right; }
+/* Colonnes enrichies du classement global (demande du 13/11) :
+   Envoi + signal (RSRP/RSRQ en mobile, RSSI en fixe). */
+.op-global-ul, .op-global-sig, .op-global-rq { flex: none; text-align: right; color: var(--text-soft); font-variant-numeric: tabular-nums; }
+.op-global-ul { width: 78px; }
+.op-global-sig { width: 74px; }
+.op-global-rq { width: 58px; }
+.op-global-ms { flex: none; width: 72px; text-align: right; }
 .op-global-count { flex: none; width: 58px; text-align: right; }
 /* Opérateur listé sans test sous les filtres courants (classement global) :
    rang gris, « Aucun test » à la place du débit. */
 .op-global-row.off { opacity: .6; }
 @media (max-width: 560px) {
-  .op-global-ms, .op-global-count { display: none; }
+  .op-global-ul, .op-global-sig, .op-global-rq, .op-global-ms, .op-global-count { display: none; }
+  .op-global-head .op-global-ul, .op-global-head .op-global-sig, .op-global-head .op-global-rq,
   .op-global-head .op-global-ms, .op-global-head .op-global-count { display: none; }
 }
 
