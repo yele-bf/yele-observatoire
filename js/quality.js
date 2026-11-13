@@ -335,6 +335,68 @@ function cleanPlace(value) {
   return parts.join(', ');
 }
 
+// ─── Lieu structuré : « Quartier, Ville, Pays » (demande du 13/11) ──────────
+// Les libellés de mesure portent deux formes selon la source :
+//   - « Ville, Pays - Quartier » (format actuel du backend, ex.
+//     « Ouagadougou, BF - Tampouy » ; le quartier manque s'il n'a pas été
+//     géocodé : « Ouagadougou, BF ») ;
+//   - « Quartier, Ville, Pays » ou « Ville, Pays » (géocodeur inverse,
+//     avec parfois des segments répétés).
+// Les tableaux veulent une lecture FIXE quartier, ville, pays : chaque
+// segment manquant est rendu « — » (« —, Ouagadougou, BF » sans quartier,
+// « Tampouy, —, BF » sans ville). Renvoie null si rien d'exploitable.
+function placeParts(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  let quartier = '';
+  let rest = raw;
+  // Forme « … - Quartier » : ce qui suit le tiret EST le quartier, le reste
+  // se décompose en ville, pays.
+  const dash = raw.indexOf(' - ');
+  if (dash >= 0) {
+    quartier = raw.slice(dash + 3).trim();
+    rest = raw.slice(0, dash).trim();
+  }
+  let segs = rest.split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  // Dédoublonnage : le géocodeur répète parfois le même segment.
+  const seen = new Set();
+  segs = segs.filter((s) => {
+    const k = s.toLowerCase();
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+
+  let ville = '';
+  let pays = '';
+  if (segs.length >= 3) {
+    // « quartier, …, ville, pays » : sans quartier explicite, le premier
+    // segment l'est ; ville et pays terminent le libellé.
+    if (!quartier) quartier = segs[0];
+    ville = segs[segs.length - 2];
+    pays = segs[segs.length - 1];
+  } else if (segs.length === 2) {
+    ville = segs[0];
+    pays = segs[1];
+  } else if (segs.length === 1) {
+    // Un seul segment : une ville seule (« Ouagadougou ») ou un quartier
+    // seul — impossible à trancher, on l'affiche comme ville.
+    ville = segs[0];
+  }
+  if (!quartier && !ville && !pays) return null;
+  return { quartier, ville, pays };
+}
+
+// Libellé du tableau : « Quartier, Ville, Pays », « — » sur les segments
+// absents. Renvoie '' quand le lieu est vide (la cellule affiche « · »).
+function formatPlace(value) {
+  const p = placeParts(value);
+  if (!p) return '';
+  return `${p.quartier || '—'}, ${p.ville || '—'}, ${p.pays || '—'}`;
+}
+
 // Terme de recherche correspondant à un nom d'opérateur, pour le filtre serveur.
 function operatorQuery(value) {
   const raw = String(value || '').trim();
@@ -365,16 +427,47 @@ function operatorShortLabel(value) {
   return head.length > 18 ? `${head.slice(0, 17)}…` : head;
 }
 
-// ─── Couleurs opérateurs (attribuées dynamiquement, stables par nom) ────────
+// ─── Couleurs opérateurs et FAI (fixes, demande du 13/11) ───────────────────
+// Une couleur UNIQUE par acteur, dans TOUTES les vues (Comparatif,
+// Statistiques, Historique, Analyse IA) : fini l'attribution dynamique qui
+// changeait selon l'ordre de chargement.
+//   - les 3 opérateurs mobiles portent leur couleur validée ;
+//   - les FAI reçoivent la proposition du 13/11 (modifiable après validation) ;
+//   - tout autre acteur inconnu prend la palette de repli, stable par nom.
+const OPERATOR_COLORS = {
+  'Orange BF SA': '#ff7900',     // orange (couleur de marque)
+  'Moov Africa SA': '#1e3a8a',   // bleu foncé
+  'Telecel Faso SA': '#0ea5e9',  // bleu clair
+  // FAI — proposition du 13/11, à valider :
+  'ANPTIC': '#7c3aed',           // violet (agence nationale)
+  'ARCEP': '#475569',            // gris ardoise (autorité : neutre)
+  'GVA': '#0891b2',              // turquoise
+};
 
-const OPERATOR_PALETTE = ['#0e7a4a', '#1d4ed8', '#ea580c', '#7c3aed', '#be185d', '#0891b2', '#ca8a04', '#475569'];
+const OPERATOR_PALETTE = ['#0e7a4a', '#be185d', '#ca8a04', '#7c3aed', '#0891b2', '#475569'];
 const operatorColorCache = {};
 
 function operatorColor(name) {
-  const key = (name || 'Inconnu').trim();
+  const key = normalizeOperator(name || 'Inconnu');
+  if (OPERATOR_COLORS[key]) return OPERATOR_COLORS[key];
+  // Repli dynamique pour les FAI hors référentiel : stable par nom.
   if (!operatorColorCache[key]) {
     const idx = Object.keys(operatorColorCache).length % OPERATOR_PALETTE.length;
     operatorColorCache[key] = OPERATOR_PALETTE[idx];
   }
   return operatorColorCache[key];
+}
+
+// ─── Colonnes figées des tableaux (demande du 13/11) ────────────────────────
+// La 2ᵉ colonne figée doit démarrer exactement où finit la 1ʳᵉ. La largeur
+// réelle dépend du contenu (dates, noms d'opérateur) : on la mesure au rendu
+// et on la pose en variable CSS --c1w sur le <table>, consommée par
+// `.data-table td:nth-child(2) { left: var(--c1w) }` (style.css).
+// À rappeler après CHAQUE rendu du tableau (les lignes sont recréées).
+function freezeFirstColumns(table) {
+  if (!table) return;
+  const cell = table.querySelector('tbody td:first-child')
+    || table.querySelector('thead th:first-child');
+  if (!cell) return;
+  table.style.setProperty('--c1w', `${cell.getBoundingClientRect().width}px`);
 }

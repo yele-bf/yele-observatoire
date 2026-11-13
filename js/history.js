@@ -290,8 +290,10 @@ const History = (() => {
   // Cellule « Lieu ». Le lieu reste affiché ; la LIGNE entière est cliquable
   // (demande du 12/11) : un clic n'importe où dessus ouvre la carte centrée
   // sur la mesure (IMP-07), pas seulement la colonne Lieu.
+  // Lecture structurée « Quartier, Ville, Pays » (demande du 13/11), « — »
+  // sur les segments absents.
   function placeCell(r) {
-    const place = cleanPlace(r.location) || '·';
+    const place = formatPlace(r.location) || '·';
     return `<span class="geo-none" title="${escapeHtml(place)}">${escapeHtml(place)}</span>`;
   }
 
@@ -322,7 +324,7 @@ const History = (() => {
       html: (r) => r.nav > 0 ? `${fr1(r.nav)} %` : dash(NOT_TESTED_HINT),
       text: (r) => r.nav > 0 ? fr1(r.nav) : '—' },
     { label: 'Appareil', html: (r) => escapeHtml(r.device) || '—', text: (r) => r.device || '—' },
-    { label: 'Lieu', html: placeCell, text: (r) => cleanPlace(r.location) || '·' },
+    { label: 'Lieu', html: placeCell, text: (r) => formatPlace(r.location) || '·' },
     { label: 'Qualité', html: (r) => qCell(r.qoe), text: (r) => r.qoe ? (r.qoe >= 3 ? 'Bonne' : 'Limitée') : '—' },
   ];
 
@@ -349,7 +351,7 @@ const History = (() => {
       html: (r) => r.nav > 0 ? `${fr1(r.nav)} %` : dash(NOT_TESTED_HINT),
       text: (r) => r.nav > 0 ? fr1(r.nav) : '—' },
     { label: 'Appareil', html: (r) => escapeHtml(r.device) || '—', text: (r) => r.device || '—' },
-    { label: 'Lieu', html: placeCell, text: (r) => cleanPlace(r.location) || '·' },
+    { label: 'Lieu', html: placeCell, text: (r) => formatPlace(r.location) || '·' },
     { label: 'Qualité', html: (r) => qCell(r.qoe), text: (r) => r.qoe ? (r.qoe >= 3 ? 'Bonne' : 'Limitée') : '—' },
   ];
 
@@ -396,6 +398,8 @@ const History = (() => {
 
     updateTechVisibility();
     renderPeriodBadges();
+    // Colonnes figées (13/11) : le décalage suit la largeur réelle de la Date.
+    freezeFirstColumns(document.getElementById('history-table'));
   }
 
   function refresh() {
