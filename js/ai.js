@@ -184,6 +184,7 @@ const AIView = (() => {
         ops.push({ value: op, label });
       });
       refreshChips();
+      renderProgress(h);
       if (h.mlReady) loadForecast();
       else {
         // Modèle pas encore entraînable : on le dit au lieu de laisser le
@@ -202,6 +203,34 @@ const AIView = (() => {
         + '<span style="color:#9aa3b2">Hébergement gratuit : il s\'endort après quelques minutes '
         + 'd\'inactivité et peut mettre 1 à 2 min à se réveiller — '
         + 'revenez sur cette page dans un instant.</span>');
+    }
+  }
+
+  // ── Bandeau de progression (demande du 15/11) ───────────────────────────────
+  // Tant que le seuil de mesures mobiles n'est pas atteint, un bandeau avec
+  // compteur remplace le silence : « 6 / 50 mesures — il vous reste 44… »,
+  // barre de progression à l'appui. Masqué dès que l'analyse est active.
+  function renderProgress(h) {
+    const card = document.getElementById('ai-progress-card');
+    if (!card) return;
+    const have = h.samples ?? 0;
+    const need = h.minSamplesForMl ?? 50;
+    if (h.mlReady) { card.hidden = true; return; }
+    const remain = Math.max(0, need - have);
+    card.hidden = false;
+    const pct = Math.min(100, Math.round((have / need) * 100));
+    const fill = document.getElementById('ai-progress-fill');
+    if (fill) {
+      fill.style.width = `${pct}%`;
+      fill.setAttribute('aria-valuenow', String(pct));
+    }
+    const text = document.getElementById('ai-progress-text');
+    if (text) {
+      text.textContent = remain > 0
+        ? `${have.toLocaleString('fr-FR')} / ${need.toLocaleString('fr-FR')} mesures mobiles analysables — `
+          + `il vous reste ${remain.toLocaleString('fr-FR')} mesures pour activer l'analyse.`
+        : `${have.toLocaleString('fr-FR')} / ${need.toLocaleString('fr-FR')} mesures mobiles — `
+          + 'l\'analyse se prépare, revenez dans un instant.';
     }
   }
 

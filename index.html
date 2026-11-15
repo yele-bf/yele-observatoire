@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="assets/vendor/leaflet.css"/>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=15">
+  <link rel="stylesheet" href="css/style.css?v=16">
   <script>
     // Thème appliqué AVANT le premier rendu : évite le flash de mauvaise
     // couleur au chargement. Priorité : choix mémorisé → préférence système.
@@ -492,6 +492,25 @@
     <div class="kpi-card"><div class="kpi-value" id="ai-anomaly-count">·</div><div class="kpi-label">Anomalies détectées</div></div>
   </div>
 
+  <!-- Compteur de progression (demande du 15/11) : tant que le service IA
+       n'a pas atteint son seuil de mesures mobiles, un bandeau annonce
+       exactement où on en est (« X / 50 mesures, il vous reste N… »).
+       Masqué dès que l'analyse est active. -->
+  <div class="card ai-progress-card" id="ai-progress-card" hidden>
+    <div class="ai-progress-head">
+      <span class="ai-progress-ico">⏳</span>
+      <span class="ai-progress-title">Analyse IA en attente de mesures</span>
+    </div>
+    <div class="ai-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100">
+      <span id="ai-progress-fill"></span>
+    </div>
+    <div class="ai-progress-text" id="ai-progress-text"></div>
+    <div class="ai-progress-note">Seules les mesures <b>mobiles</b> (2G–5G)
+      comptent pour ce seuil — les mesures <b>fixe</b> (WiFi) ne sont pas
+      analysées par l'IA. Chaque nouveau test de l'application fait avancer
+      le compteur ; l'analyse s'activera automatiquement.</div>
+  </div>
+
   <!-- Carte de filtres (proposition 1 validée le 13/11) : Opérateur →
        Technologie → Période → Réinitialiser. Filtre le graphe de prévision
        ET le tableau des anomalies en même temps. Mobile uniquement. -->
@@ -589,7 +608,7 @@
 <script src="js/stats.js?v=8"></script>
 <script src="js/history.js?v=7"></script>
 <script src="js/forecast.js?v=2"></script>
-<script src="js/ai.js?v=8"></script>
+<script src="js/ai.js?v=9"></script>
 <script src="js/app.js?v=2"></script>
 </body>
 </html>
