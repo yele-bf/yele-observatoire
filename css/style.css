@@ -769,6 +769,26 @@ select.period-select option { background: var(--white); color: var(--text); }
    de KPI et des filtres varie, et une soustraction exacte serait fragile. */
 #view-operators .table-wrap { max-height: 56vh; }
 
+/* ─── Analyse IA : bandeau de progression (demande du 15/11) ────────────────
+   Affiché tant que le seuil de mesures mobiles n'est pas atteint : compteur
+   « X / 50 » + barre qui avance à chaque nouveau test de l'app. */
+.ai-progress-card { border-color: color-mix(in srgb, var(--green) 35%, transparent); }
+.ai-progress-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.ai-progress-ico { font-size: 18px; }
+.ai-progress-title { font-weight: 800; color: var(--navy); font-size: 14px; }
+.ai-progress-bar {
+  height: 10px; border-radius: 999px; overflow: hidden;
+  background: var(--bg); border: 1px solid var(--border);
+}
+.ai-progress-bar > span {
+  display: block; height: 100%; border-radius: 999px;
+  background: linear-gradient(90deg, var(--q1), var(--q2), var(--q3), var(--q4));
+  transition: width .6s ease;
+}
+.ai-progress-text { margin-top: 8px; font-weight: 700; color: var(--text); font-size: 13px; }
+.ai-progress-note { margin-top: 4px; font-size: 12px; color: var(--text-soft); line-height: 1.5; }
+.ai-progress-note b { color: var(--text); }
+
 /* ─── Tableaux : en-têtes + 2 premières colonnes figés (demande du 13/11) ──
    Le Comparatif faisait déjà défiler son tableau DANS le cadre (.table-wrap
    max-height) : l'en-tête restait visible en scroll vertical ET horizontal.
