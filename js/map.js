@@ -631,15 +631,10 @@ const MapView = (() => {
     if (covOnly) covOnly.style.display = mobile ? '' : 'none';
 
     document.getElementById('mt-coverage').style.display = mobile ? '' : 'none';
-    // La carte de chaleur n'est proposée qu'en mobile (les agrégats de
-    // densité en fixe n'apportaient rien) : bouton masqué et mode forcé sur
-    // « Points de test ».
-    document.querySelector('#display-mode .toggle[data-mode="heatmap"]').style.display = mobile ? '' : 'none';
-    if (!mobile && state.mode === 'heatmap') {
-      state.mode = 'points';
-      document.querySelectorAll('#display-mode .toggle').forEach((b) =>
-        b.classList.toggle('active', b.dataset.mode === 'points'));
-    }
+    // La carte de chaleur existe dans les deux réseaux depuis le 15/11 :
+    // en fixe comme en mobile elle peint des ZONES colorées par la légende
+    // (le rendu « densité » à une seule couleur a été retiré avec lui).
+    document.querySelector('#display-mode .toggle[data-mode="heatmap"]').style.display = '';
     // Le Global reste visible en fixe : sa popup réunit les 5 mesures de la
     // zone (download, upload, latence, streaming, navigation).
     // En passant au réseau Fixe, seule la carte de COUVERTURE perd son sens :
@@ -658,31 +653,17 @@ const MapView = (() => {
   function updateMaptypeHint() {
     const el = document.getElementById('maptype-hint');
     if (!el) return;
-    el.textContent =
-      state.mapType === 'coverage'
-        ? 'Couleur = technologie la plus fréquente dans la zone (2G → 5G).'          : state.mapType === 'global'
-            ? (state.netType === 'fixe'
-                ? 'Réunit toutes les mesures de la zone : download, upload, latence, streaming, navigation.'
-                : 'Combine download, upload, latence, streaming et navigation en un score unique.')
-          : state.mapType === 'dl'
-            ? (state.netType === 'fixe'
-                ? 'Points de mesure du téléchargement (aucun seuil de qualité en fixe).'
-                : 'La couleur montre la rapidité du téléchargement.')
-            : state.mapType === 'ul'
-              ? (state.netType === 'fixe'
-                  ? 'Points de mesure de l’envoi (upload), aucun seuil de qualité en fixe.'
-                  : 'La couleur montre la rapidité de l’envoi (upload).')
-              : state.mapType === 'ping'
-                ? (state.netType === 'fixe'
-                    ? 'Points de mesure de la latence (aucun seuil de qualité en fixe).'
-                    : 'La couleur montre la réactivité (temps de réponse).')
-                : state.mapType === 'streaming'
-                  ? (state.netType === 'fixe'
-                      ? 'Points de mesure du streaming (aucun seuil de qualité en fixe).'
-                      : 'La couleur montre la fluidité de la vidéo.')
-                  : (state.netType === 'fixe'
-                      ? 'Points de mesure de la navigation (aucun seuil de qualité en fixe).'
-                      : 'La couleur montre la vitesse de chargement des pages.');
+    // Les mêmes lectures valent pour les deux réseaux depuis le 15/11 : les
+    // points fixe suivent les couleurs de la légende, comme les mobiles.
+    el.textContent = {
+      coverage: 'Couleur = technologie la plus fréquente dans la zone (2G → 5G).',
+      global: 'Combine download, upload, latence, streaming et navigation en un score unique.',
+      dl: 'La couleur montre la rapidité du téléchargement.',
+      ul: 'La couleur montre la rapidité de l’envoi (upload).',
+      ping: 'La couleur montre la réactivité (temps de réponse).',
+      streaming: 'La couleur montre la fluidité de la vidéo.',
+      browsing: 'La couleur montre la vitesse de chargement des pages.',
+    }[state.mapType] || '';
   }
 
   // Menu des lieux (villes) : dérivé des libellés géocodés des tests de
@@ -802,21 +783,10 @@ const MapView = (() => {
 
     const points = filteredPoints();
 
-    if (state.mode === 'heatmap' && state.netType === 'fixe') {
-      // Chaleur FIXE : densité de mesures uniquement, sémantique correcte de
-      // leaflet.heat (tous les points intensité 1 → une seule couleur, c'est
-      // le but : aucun seuil de qualité en fixe).
-      const heatData = points
-        .filter((p) => p.lat && p.lng)
-        .map((p) => [p.lat, p.lng, 1]);
-      heatLayer = L.heatLayer(heatData, {
-        // minOpacity explicite : la tache la plus faible reste visible.
-        radius: 38, blur: 30, maxZoom: 15, minOpacity: 0.5,
-        gradient: { 1: markerColor() },
-      }).addTo(map);
-    } else if (state.mode === 'heatmap' && state.netType === 'mobile') {
-      // Chaleur MOBILE (couverture OU qualité) : peinture par ZONES, la
-      // même mécanique quel que soit l'usage. La canvas de leaflet.heat est
+    if (state.mode === 'heatmap') {
+      // Chaleur peinte par ZONES, la même mécanique quel que soit le réseau
+      // (le fixe rejoint le mobile le 15/11 : ses points suivent désormais
+      // les couleurs de la légende). La canvas de leaflet.heat est
       // incompatible avec une lecture par niveau : son alpha dépend du zoom
       // courant (f = 2^(zoom − maxZoom) dans _redraw, mesuré in situ : zoom
       // 7, maxZoom 15 → chaque point ne pèse que ~0,004, écrasé par
@@ -849,17 +819,18 @@ const MapView = (() => {
       buildZones(points).forEach((zone) => {
         // Couleur du rond = couleur de la LÉGENDE, comme nPerf :
         //  • Couverture  → couleur de la techno dominante de la zone ;
-        //  • Qualité (mobile) → couleur du NIVEAU de l'usage courant (les
-        //    mêmes pastilles que la légende). La 5G n'y joue aucun rôle :
+        //  • Qualité (mobile ET fixe depuis le 15/11) → couleur du NIVEAU
+        //    de l'usage courant (les mêmes pastilles que la légende).
+        //    Avant le 15/11, le fixe restait uniforme (décision du 07/10 :
+        //    « aucun seuil en fixe ») — obsolète depuis que la légende des
+        //    niveaux s'affiche aussi en fixe (demande du 10/11) et que les
+        //    six usages qualité portent des seuils adaptés (debitFixe en
+        //    descendant, les autres identiques). La lecture détaillée reste
+        //    dans la popup (verdict + mesures). La 5G n'y joue aucun rôle :
         //    règle « techno = bleu uniquement en couverture » (revert du
-        //    06/10 soir, décision utilisateur). La lecture qualité reste
-        //    dans la popup (verdict + mesures).
-        //  • Fixe → couleur uniforme pour TOUS les usages (décision du 07/10 :
-        //    streaming et navigation comme les autres — aucun seuil en fixe,
-        //    simplement des points de mesure ; la lecture reste au popup).
+        //    06/10 soir, décision utilisateur).
         let color;
         if (covMode) color = coverageColor(zone.points);
-        else if (state.netType === 'fixe') color = markerColor();
         else color = qualityColor(zoneLevel(zone, usageForMapType()));
         if (covMode && !color) return; // zone sans technologie : non peinte
         const marker = L.marker([zone.lat, zone.lng], { icon: zoneIcon(zone.count, color) });
