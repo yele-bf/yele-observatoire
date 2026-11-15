@@ -252,9 +252,12 @@ const AIView = (() => {
 
     document.getElementById('ai-anomaly-count').textContent =
       rows.length.toLocaleString('fr-FR');
-    document.getElementById('ai-table-info').textContent =
-      `${rows.length.toLocaleString('fr-FR')} anomalie${rows.length > 1 ? 's' : ''}`
-      + ` affichée${rows.length > 1 ? 's' : ''} — cliquez une ligne pour la carte`;
+    // Mention « cliquez une ligne » seulement s'il y a des lignes : sur un
+    // tableau vide elle ne décrit rien (retouche du 15/11).
+    document.getElementById('ai-table-info').textContent = rows.length
+      ? `${rows.length.toLocaleString('fr-FR')} anomalie${rows.length > 1 ? 's' : ''}`
+        + ` affichée${rows.length > 1 ? 's' : ''} — cliquez une ligne pour la carte`
+      : 'Aucune anomalie à afficher pour ces filtres.';
 
     if (!rows.length) {
       tbody.innerHTML = '<tr><td colspan="13" style="color:#5d6478">Aucune anomalie détectée sur la période. ✓</td></tr>';
