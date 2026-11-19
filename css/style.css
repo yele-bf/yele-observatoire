@@ -155,7 +155,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; 
 /* Le logo dépasse de ~38 px sous la barre (il est à cheval sur sa ligne).
    Sur la carte il se fond dans le panneau blanc, mais sur les vues défilantes
    il retombait sur le titre de page : on réserve donc cette hauteur en haut. */
-.view-operators.active, .view-stats.active,
+.view-operators.active, .view-stats.active, .view-qoe.active,
 .view-history.active, .view-ai.active {
   overflow-y: auto; padding: 46px 30px 50px;
   /* Scroll explicite : Chrome/Windows ne montre la barre qu'au survol du
@@ -164,11 +164,13 @@ svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; 
   scrollbar-width: auto; scrollbar-color: var(--border) transparent;
 }
 .view-operators.active::-webkit-scrollbar, .view-stats.active::-webkit-scrollbar,
+.view-qoe.active::-webkit-scrollbar,
 .view-history.active::-webkit-scrollbar, .view-ai.active::-webkit-scrollbar {
   width: 12px;
 }
 .view-operators.active::-webkit-scrollbar-thumb,
 .view-stats.active::-webkit-scrollbar-thumb,
+.view-qoe.active::-webkit-scrollbar-thumb,
 .view-history.active::-webkit-scrollbar-thumb,
 .view-ai.active::-webkit-scrollbar-thumb {
   background: var(--border); border-radius: 999px;
@@ -176,6 +178,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; 
 }
 .view-operators.active::-webkit-scrollbar-thumb:hover,
 .view-stats.active::-webkit-scrollbar-thumb:hover,
+.view-qoe.active::-webkit-scrollbar-thumb:hover,
 .view-history.active::-webkit-scrollbar-thumb:hover,
 .view-ai.active::-webkit-scrollbar-thumb:hover { background-color: var(--text-soft); }
 
@@ -1149,3 +1152,128 @@ tr.op-raw td {
 @media (max-width: 700px) {
   .fc-panel { width: auto; right: 16px; max-height: 45%; }
 }
+
+/* ─── Vue Qualité perçue ─────────────────────────────────────────────────── */
+
+.qoe-actions { display: flex; gap: 8px; align-items: center; }
+.qoe-actions .btn-primary, .qoe-actions .btn-ghost { padding: 8px 14px; font-size: 12.5px; }
+.qoe-status { margin-top: 10px; font-size: 12px; color: var(--text-soft); }
+.qoe-status b { color: var(--navy); }
+.qoe-error { color: #c0392b; }
+.qoe-retry { margin-left: 10px; padding: 5px 12px; font-size: 11.5px; }
+
+.qoe-empty { text-align: center; padding: 30px 18px; margin-bottom: 14px; }
+/* La carte vide et la grille de blocs portent des display explicites :
+   sans cette règle, l'attribut hidden ne les masquerait pas. */
+.qoe-empty[hidden], #qoe-body[hidden] { display: none; }
+.qoe-empty b { font-size: 14px; color: var(--navy); }
+.qoe-empty p { margin-top: 5px; font-size: 12px; color: var(--text-soft); }
+.qoe-empty-inline { font-size: 12px; color: var(--text-soft); padding: 12px 0; }
+
+/* Bloc « Ressenti vs mesure » : deux barres par opérateur. */
+.qoe-bars {
+  display: flex; gap: 18px; align-items: flex-end; justify-content: space-around;
+  min-height: 200px; padding-top: 20px;
+}
+.qoe-gcol { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 0; }
+.qoe-bar-pair {
+  display: flex; align-items: flex-end; justify-content: center; gap: 8px;
+  height: 150px; width: 100%;
+}
+.qoe-bar {
+  width: 44px; max-width: 32%; border-radius: 5px 5px 0 0; position: relative;
+  display: flex; align-items: flex-start; justify-content: center;
+  transition: height .3s ease;
+}
+.qoe-bar span {
+  position: absolute; top: -17px; font-size: 10.5px; font-weight: 700;
+  color: var(--text-soft); white-space: nowrap;
+}
+.qoe-bar-dl { background: #16557e; }
+.qoe-gname {
+  font-size: 11px; font-weight: 700; color: var(--navy);
+  text-align: center; display: flex; gap: 5px; align-items: center; flex-wrap: wrap;
+  justify-content: center;
+}
+.qoe-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+
+.qoe-legend {
+  display: flex; flex-wrap: wrap; gap: 14px; margin-top: 12px;
+  font-size: 10.5px; color: var(--text-soft);
+}
+.qoe-legend b { color: var(--text); }
+.qoe-swatch { width: 9px; height: 9px; border-radius: 2px; display: inline-block; margin-right: 5px; }
+.qoe-note { font-size: 10px; color: var(--text-soft); margin-top: 8px; line-height: 1.5; }
+
+/* Bloc « Satisfaction globale » : barre empilée 5 niveaux. */
+.qoe-stack {
+  display: flex; height: 34px; border-radius: 8px; overflow: hidden;
+  background: var(--bg); margin-top: 4px;
+}
+.qoe-stack-seg {
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 800; color: #fff;
+  overflow: hidden; white-space: nowrap;
+}
+.qoe-stack-empty {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  font-size: 11px; color: var(--text-soft);
+}
+
+/* Bloc « Profil des répondants ». */
+.qoe-profile-block { margin-bottom: 14px; }
+.qoe-profile-block:last-child { margin-bottom: 0; }
+.qoe-profile-title {
+  font-size: 10.5px; font-weight: 800; text-transform: uppercase;
+  letter-spacing: .5px; color: var(--text-soft); margin-bottom: 6px;
+}
+.qoe-pline { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; font-size: 11.5px; }
+.qoe-plabel { width: 118px; color: var(--text); flex: none; }
+.qoe-ptrack { flex: 1; height: 7px; border-radius: 4px; background: var(--border); overflow: hidden; }
+.qoe-ptrack i { display: block; height: 100%; border-radius: 4px; background: var(--green); }
+.qoe-pct {
+  width: 46px; text-align: right; font-weight: 700;
+  font-variant-numeric: tabular-nums; flex: none;
+}
+
+/* Bloc « Améliorations prioritaires » : deux colonnes mobile / fixe. */
+.qoe-improvements { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+.qoe-col-title { font-size: 12px; font-weight: 800; color: var(--navy); margin-bottom: 9px; }
+.qoe-col-title small { color: var(--text-soft); font-weight: 500; }
+.qoe-amel { margin-bottom: 8px; }
+.qoe-amel-lab {
+  display: flex; justify-content: space-between; gap: 12px;
+  font-size: 11.5px; margin-bottom: 3px;
+}
+/* Le pourcentage ne se coupe jamais en deux lignes, même quand le libellé
+   du questionnaire est long (« … aux heures de pointe, surtout le soir »). */
+.qoe-amel-lab b { color: var(--text-soft); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.qoe-improvements .qoe-ptrack { height: 6px; }
+@media (max-width: 900px) {
+  .qoe-improvements { grid-template-columns: 1fr; }
+  .qoe-plabel { width: 96px; }
+}
+
+/* Popup « Qualité perçue » de la carte. */
+.qoe-popup-date { font-size: 10.5px; color: var(--text-soft); margin-bottom: 8px; }
+.qoe-popup-row {
+  display: flex; justify-content: space-between; gap: 10px;
+  font-size: 11.5px; padding: 2px 0;
+}
+.qoe-popup-row b { font-weight: 700; }
+.qoe-stars { letter-spacing: 1px; color: #f5a623; }
+.qoe-popup-sat {
+  margin-top: 8px; padding: 6px 9px; border-radius: 7px;
+  color: #fff; font-size: 11.5px; font-weight: 800; text-align: center;
+}
+
+/* Le groupe Mobile/Fixe doit se dimensionner sur son texte : les .toggle ont
+   flex:1/min-width:0, et sans contrainte de largeur ils se réduisaient à
+   « Mo… ». */
+#qoe-net-type { flex: none; }
+#qoe-net-type .toggle { flex: none; padding: 7px 12px; }
+
+/* Les cartes d'une grille ont par défaut min-width:auto : le tableau large
+   (8 colonnes, cellules nowrap) élargissait TOUTE la grille — et la page —
+   au lieu de défiler dans son .table-wrap. */
+.charts-grid > .card { min-width: 0; }

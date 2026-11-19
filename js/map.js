@@ -5,6 +5,12 @@ const MapView = (() => {
   let markersLayer = null;
   let heatLayer = null;
   let allPoints = [];
+  // Couche « Qualité perçue » : chargée à part via /api/dashboard/map?usage=qoe
+  // (l'endpoint général ne retient que les tests avec débit > 0, alors qu'une
+  // évaluation peut suivre un test de navigation ou de streaming).
+  let qoePoints = [];
+  let qoeLoaded = false;
+  let qoeLoading = false;
   let countryBounds = null;
 
   const state = {
@@ -103,6 +109,51 @@ const MapView = (() => {
   function isCellularTest(p) {
     return /^[2345]G\+?$/.test(String(p.networkType || '').trim());
   }
+  // Une évaluation QoE existe-t-elle pour ce test ?
+  function isQoePoint(p) {
+    return !!(p && (p.qoeTestType || p.qoeSatisfaction || p.qoeRating > 0));
+  }
+  // Réseau d'un point évalué : le questionnaire le déclare (qoeReseau) ; à
+  // défaut, on retombe sur la technologie mesurée.
+  function qoeReseauOf(p) {
+    if (p.qoeReseau === 'mobile' || p.qoeReseau === 'fixe') return p.qoeReseau;
+    return isCellularTest(p) ? 'mobile' : 'fixe';
+  }
+  // Opérateur d'un point évalué : libellé ARCEP renvoyé par le backend, ramené
+  // au nom canonique des filtres de la carte.
+  function qoeOperatorOf(p) {
+    return normalizeOperator(p.qoeOperator || p.operator);
+  }
+  // Charge la couche QoE à la première demande. Le rendu est relancé une fois
+  // les points arrivés ; en cas d'échec, on réessaiera au prochain clic.
+  async function ensureQoePoints() {
+    if (qoeLoaded || qoeLoading) return;
+    qoeLoading = true;
+    try {
+      qoePoints = (await API.qoeMap() || []).filter(isQoePoint).map((p) => ({
+        ...p,
+        operator: normalizeOperator(p.operator),
+        networkType: normalizeNetwork(p.networkType),
+      }));
+      qoeLoaded = true;
+      // Les listes (opérateurs, technos, lieux) ne comptent que les évaluations.
+      buildOperatorSelect();
+      buildTechChips();
+      updateTechVisibility();
+      buildLieuSelect();
+      updateLegend();
+    } catch (e) {
+      qoePoints = [];
+      // Sans message, la couche paraîtrait simplement vide : on explique.
+      if (typeof App !== 'undefined' && App.toast) {
+        App.toast('Couche « Qualité perçue » indisponible pour le moment.');
+      }
+    } finally {
+      qoeLoading = false;
+      render();
+    }
+  }
+
   // Couleur de la carte de couverture : la technologie DOMINANTE de la zone
   // (la plus fréquente — choix utilisateur 06/10/2026, voir bestTechOf).
   // Retourne null quand aucune technologie cellulaire n'est identifiée — la
@@ -414,6 +465,19 @@ const MapView = (() => {
       updateMaptypeHint();
       return;
     }
+    // Qualité perçue : cinq niveaux déclarés (pas les quatre niveaux mesurés).
+    if (state.mapType === 'qoe') {
+      const rows = QOE_SATISFACTION_ORDER.map((code) => `
+        <div class="legend-row">
+          <span class="legend-dot" style="background:${qoeColor(code)}"></span>
+          <span class="legend-label">${escapeHtml(qoeLegendLabel(code))}</span>
+        </div>`).join('');
+      el.innerHTML = '<div class="legend-title">Satisfaction déclarée</div>'
+        + '<div class="legend-sub">Couleur = avis de l’utilisateur après son test</div>'
+        + rows;
+      updateMaptypeHint();
+      return;
+    }
     // Réseau FIXE : la légende standard des niveaux s'affiche aussi, comme
     // sur l'onglet Couverture de l'app (demande 10/11 — elle remplace la
     // décision du 07/10 « aucun seuil de qualité en fixe », qui laissait la
@@ -445,6 +509,8 @@ const MapView = (() => {
   }
 
   async function loadData() {
+    qoeLoaded = false;
+    qoePoints = [];
     setLoadingBanner('Chargement des points de test…<small>Le serveur peut mettre '
       + 'jusqu\'à une minute à sortir de veille.</small>');
     try {
@@ -479,11 +545,23 @@ const MapView = (() => {
     // fixe), filtres technologie / lieu / période appliqués comme les autres.
     // Façon nPerf inversée : plus de voile « Choisissez un opérateur »,
     // la carte affiche d'emblée tout le réseau (demande 10/11).
+    const qoeMode = state.mapType === 'qoe';
+    const source = qoeMode ? qoePoints : allPoints;
     const mobileMode = state.netType === 'mobile';
     const allIsps = state.operator === '__all__';
+    // En mode QoE, le réseau et l'opérateur déclarés priment : un test Wi-Fi
+    // Orange est un test fixe même si la SIM est Orange.
+    const isMobilePoint = qoeMode
+      ? (p) => qoeReseauOf(p) === 'mobile'
+      : (p) => isCellularTest(p);
+    const operatorOf = qoeMode
+      ? (p) => qoeOperatorOf(p)
+      : (p) => p.operator || 'Inconnu';
+
     if (allIsps) {
-      return allPoints.filter((p) => {
-        if (mobileMode ? !isCellularTest(p) : isCellularTest(p)) return false;
+      return source.filter((p) => {
+        if (qoeMode && !isQoePoint(p)) return false;
+        if (isMobilePoint(p) !== mobileMode) return false;
         if (mobileMode && state.tech) {
           const t = p.networkType || NETWORK_UNKNOWN;
           if (t !== state.tech) return false;
@@ -495,21 +573,15 @@ const MapView = (() => {
     // Sans opérateur précis sélectionné (jamais le cas par défaut depuis le
     // 10/11), la carte n'affiche rien — garde sémantique conservée.
     if (!state.operator) return [];
-    return allPoints.filter((p) => {
-      const op = p.operator || 'Inconnu';
-      if (op !== state.operator) return false;
-      if (mobileMode) {
-        // Mobile : seuls les tests sur réseau cellulaire (2G-5G) comptent,
-        // filtrés ensuite par technologie choisie.
+    return source.filter((p) => {
+      if (qoeMode && !isQoePoint(p)) return false;
+      if (operatorOf(p) !== state.operator) return false;
+      // Mobile : seuls les tests sur réseau cellulaire (2G-5G) comptent,
+      // filtrés ensuite par technologie choisie. Fixe : réciproque.
+      if (isMobilePoint(p) !== mobileMode) return false;
+      if (mobileMode && state.tech) {
         const t = p.networkType || NETWORK_UNKNOWN;
-        if (!isCellularTest(p)) return false;
-        if (state.tech && t !== state.tech) return false;
-      } else if (isCellularTest(p)) {
-        // Fixe : réciproque — un opérateur précis n'affiche que ses tests NON
-        // cellulaires. Sans ce garde, la carte dessinait AUSSI ses tests
-        // mobiles (Orange : liste « (78) » mais 502 ronds dessinés) et les
-        // popups marquaient « Réseau mobile » en plein mode Fixe.
-        return false;
+        if (t !== state.tech) return false;
       }
       if (state.lieu && villeOf(p) !== state.lieu) return false;
       return timeMatch(p, skipPeriodGrain);
@@ -568,10 +640,13 @@ const MapView = (() => {
   function buildOperatorSelect() {
     const sel = document.getElementById('operator-select');
     const previous = state.operator;
+    const qoeMode = state.mapType === 'qoe';
+    const source = qoeMode ? qoePoints : allPoints;
     const counts = {};
-    allPoints.forEach((p) => {
-      const op = p.operator || 'Inconnu';
-      const isCellular = isCellularTest(p);
+    source.forEach((p) => {
+      if (qoeMode && !isQoePoint(p)) return;
+      const op = qoeMode ? qoeOperatorOf(p) : (p.operator || 'Inconnu');
+      const isCellular = qoeMode ? qoeReseauOf(p) === 'mobile' : isCellularTest(p);
       if (state.netType === 'mobile' ? isCellular : !isCellular) {
         counts[op] = (counts[op] || 0) + 1;
       }
@@ -587,7 +662,8 @@ const MapView = (() => {
       // est proposé en plus, dynamiquement.
       Object.keys(counts)
         .filter((op) => !MOBILE_OPERATORS.includes(op) && /G$/.test(op) === false && op !== 'Inconnu')
-        .filter((op) => allPoints.some((q) => (q.operator || '') === op && isCellularTest(q)))
+        .filter((op) => source.some((q) => (qoeMode ? qoeOperatorOf(q) : (q.operator || '')) === op
+          && (qoeMode ? qoeReseauOf(q) === 'mobile' : isCellularTest(q))))
         .forEach((op) => entries.push({ op, n: counts[op] }));
     } else {
       // FAI : dynamique, tout ce qui apparaît dans les tests non cellulaires.
@@ -663,6 +739,7 @@ const MapView = (() => {
       ping: 'La couleur montre la réactivité (temps de réponse).',
       streaming: 'La couleur montre la fluidité de la vidéo.',
       browsing: 'La couleur montre la vitesse de chargement des pages.',
+      qoe: 'Couleur = satisfaction déclarée après le test. Seuls les tests évalués sont affichés.',
     }[state.mapType] || '';
   }
 
@@ -691,7 +768,10 @@ const MapView = (() => {
   // un message remplace les puces quand l'opérateur n'a aucun test cellulaire.
   function updateTechVisibility() {
     const block = document.getElementById('mobile-only');
-    const show = state.netType === 'mobile' && !!state.operator;
+    // Le sentinelle « Tous les opérateurs » (__all__) n'est pas un opérateur :
+    // les puces techno sont alors vides (« Toutes 0 ») et n'ont rien à filtrer.
+    const show = state.netType === 'mobile'
+      && !!state.operator && state.operator !== '__all__';
     block.style.display = show ? '' : 'none';
     const hint = document.getElementById('tech-empty-hint');
     if (hint) hint.remove();
@@ -710,13 +790,17 @@ const MapView = (() => {
     // Le Wi-Fi et les liens non radio sont l'affaire du mode « Fixe ».
     const counts = {};
     let cellularTotal = 0;
+    const qoeMode = state.mapType === 'qoe';
+    const source = qoeMode ? qoePoints : allPoints;
     // Flux nPerf : les technos affichées sont celles DE L'OPÉRATEUR choisi
     // (comptées sur ses tests à lui). Sans opérateur, le bloc reste vide.
     if (state.operator && state.operator !== '__all__') {
-      allPoints.forEach((p) => {
-        if ((p.operator || 'Inconnu') !== state.operator) return;
+      source.forEach((p) => {
+        if (qoeMode && !isQoePoint(p)) return;
+        const op = qoeMode ? qoeOperatorOf(p) : (p.operator || 'Inconnu');
+        if (op !== state.operator) return;
         const t = p.networkType || NETWORK_UNKNOWN;
-        if (!isCellularTest(p)) return;
+        if (qoeMode ? qoeReseauOf(p) !== 'mobile' : !isCellularTest(p)) return;
         counts[t] = (counts[t] || 0) + 1;
         cellularTotal++;
       });
@@ -783,6 +867,9 @@ const MapView = (() => {
 
     const points = filteredPoints();
 
+    // La couche QoE se charge à la première sélection ; le rendu sera relancé.
+    if (state.mapType === 'qoe' && !qoeLoaded && !qoeLoading) ensureQoePoints();
+
     if (state.mode === 'heatmap') {
       // Chaleur peinte par ZONES, la même mécanique quel que soit le réseau
       // (le fixe rejoint le mobile le 15/11 : ses points suivent désormais
@@ -799,7 +886,9 @@ const MapView = (() => {
       buildZones(points).forEach((zone) => {
         const color = state.mapType === 'coverage'
           ? coverageColor(zone.points)                                  // couverture : techno dominante
-          : qualityColor(zoneLevel(zone, usageForMapType()));           // qualité : niveau de l'usage
+          : state.mapType === 'qoe'
+            ? qoeZoneColor(zone)                                        // qualité perçue : satisfaction moyenne
+            : qualityColor(zoneLevel(zone, usageForMapType()));         // qualité : niveau de l'usage
         if (!color) return; // zone sans technologie : non peinte
         // Teintes plus opaques : les taches de couverture devaient être
         // visibles d'un coup d'œil (demande de lisibilité).
@@ -813,6 +902,23 @@ const MapView = (() => {
         }).addTo(heatLayer);
       });
     } else {
+      // Qualité perçue : CHAQUE test évalué est affiché individuellement
+      // (pas de regroupement), pour que la carte montre bien une réponse = un
+      // point, comme validé sur le croquis.
+      if (state.mapType === 'qoe') {
+        points.forEach((p) => {
+          if (!p.lat || !p.lng) return;
+          const code = qoeSatisfactionOf(p);
+          if (!code) return;
+          const marker = L.circleMarker([p.lat, p.lng], {
+            radius: 7, color: '#ffffff', weight: 1.5,
+            fillColor: qoeColor(code), fillOpacity: 0.95,
+          });
+          marker.bindPopup(qoePointPopupHtml(p), { minWidth: 230 });
+          markersLayer.addLayer(marker);
+        });
+        return;
+      }
       // Affichage par zones : les tests proches (≈ 10 m) sont regroupés en un
       // seul rond qui montre la moyenne de la zone.
       const covMode = state.mapType === 'coverage';
@@ -927,6 +1033,22 @@ const MapView = (() => {
     return Math.round(vals.reduce((s, v) => s + v, 0) / vals.length) || 1;
   }
 
+  // Couleur d'une zone en qualité perçue : moyenne des niveaux de satisfaction
+  // déclarés, ramenée au code de la légende. null si aucune réponse.
+  function qoeZoneColor(zone) {
+    const vals = zone.points
+      .map(qoeSatisfactionOf)
+      .filter(Boolean)
+      .map((code) => QOE_SATISFACTION[code].level);
+    if (!vals.length) return null;
+    const avg = vals.reduce((s, v) => s + v, 0) / vals.length;
+    if (avg >= 4.5) return qoeColor('very_satisfied');
+    if (avg >= 3.5) return qoeColor('satisfied');
+    if (avg >= 2.5) return qoeColor('neutral');
+    if (avg >= 1.5) return qoeColor('unsatisfied');
+    return qoeColor('very_unsatisfied');
+  }
+
   // Rond de zone : POINTS PETITS façon nPerf (base 13 px, plafond 28 px) —
   // assez visibles pour être touchés, assez petits pour distinguer les zones
   // proches même avec beaucoup de tests.
@@ -977,6 +1099,60 @@ const MapView = (() => {
     else if (g === 'weekday') rows.sort((a, b) => ((Number(a.key) + 6) % 7) - ((Number(b.key) + 6) % 7));
     else rows.sort((a, b) => (a.key < b.key ? -1 : 1));
     return { grain: g, rows };
+  }
+
+  // ── Popup « Qualité perçue » (un point = une réponse) ──────────────────────
+  function qoeStars(value) {
+    const v = Math.max(1, Math.min(5, Number(value) || 0));
+    return '★'.repeat(v) + '☆'.repeat(5 - v);
+  }
+
+  function qoeFrequencyLabel(value) {
+    return {
+      frequemment: 'Fréquemment', souvent: 'Souvent',
+      rarement: 'Rarement', jamais: 'Jamais',
+    }[String(value || '').toLowerCase()] || String(value || '');
+  }
+
+  function qoeTestTypeLabel(value) {
+    return {
+      speedtest: 'Speedtest', navigation: 'Navigation web',
+      streaming: 'Streaming vidéo', complet: 'Test complet',
+    }[String(value || '').toLowerCase()] || 'Évaluation';
+  }
+
+  function qoePointPopupHtml(p) {
+    // Décimales françaises (« 4,0 ») comme le reste du site : les autres
+    // popups de la carte gardent leur format historique.
+    const fr1 = (v) => Number(v).toLocaleString('fr-FR', {
+      minimumFractionDigits: 1, maximumFractionDigits: 1,
+    });
+    const code = qoeSatisfactionOf(p);
+    const op = p.qoeOperator || normalizeOperator(p.operator);
+    const reseau = qoeReseauOf(p);
+    const tech = p.networkType && p.networkType !== NETWORK_UNKNOWN ? p.networkType : '';
+    const dl = Number(p.download) || 0;
+    const ul = Number(p.upload) || 0;
+    const pg = Number(p.ping) || 0;
+    const rating = Number(p.qoeRating || p.qoeVitesse || 0);
+    const cuts = p.qoeCoupuresVideo ? qoeFrequencyLabel(p.qoeCoupuresVideo) : '';
+    return `
+      <div class="popup-yele qoe-popup">
+        <div class="popup-op">
+          <b>${escapeHtml(op)}</b>
+          <span class="popup-net">${reseau === 'mobile' ? 'Réseau mobile' : 'Réseau fixe (WiFi)'}</span>
+        </div>
+        <div class="qoe-popup-date">${escapeHtml(p.timestamp || '')}${p.qoeTestType ? ' · ' + escapeHtml(qoeTestTypeLabel(p.qoeTestType)) : ''}</div>
+        <div class="popup-metrics">
+          <div class="popup-metric"><b>${dl > 0 ? fr1(dl) : '·'}</b><span>Mb/s ↓</span></div>
+          <div class="popup-metric"><b>${ul > 0 ? fr1(ul) : '·'}</b><span>Mb/s ↑</span></div>
+          <div class="popup-metric"><b>${pg > 0 ? Math.round(pg) : '·'}</b><span>ms latence</span></div>
+        </div>
+        ${tech ? `<div class="qoe-popup-row"><span>Technologie</span><b>${escapeHtml(tech)}</b></div>` : ''}
+        ${rating ? `<div class="qoe-popup-row"><span>Note vitesse</span><b class="qoe-stars">${qoeStars(rating)}</b></div>` : ''}
+        ${cuts ? `<div class="qoe-popup-row"><span>Coupures vidéo</span><b>${escapeHtml(cuts)}</b></div>` : ''}
+        <div class="qoe-popup-sat" style="background:${qoeColor(code)}">Satisfaction : ${escapeHtml(qoeSatisfactionLabel(code))}</div>
+      </div>`;
   }
 
   function zonePopupHtml(zone, lvl) {
@@ -1191,6 +1367,16 @@ const MapView = (() => {
         document.querySelectorAll('#maptype-block .toggle[data-mt]').forEach((b) => b.classList.remove('active'));
         btn.classList.add('active');
         state.mapType = btn.dataset.mt;
+        // Les listes d'opérateurs / technos / lieux dépendent de la source :
+        // évaluations QoE pour cette couche, tous les tests sinon.
+        if (state.mapType === 'qoe' && !qoeLoaded) {
+          ensureQoePoints();
+        } else {
+          buildOperatorSelect();
+          buildTechChips();
+          updateTechVisibility();
+          buildLieuSelect();
+        }
         updateLegend();
         render();
       });

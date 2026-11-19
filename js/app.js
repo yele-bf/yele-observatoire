@@ -13,6 +13,7 @@ const App = (() => {
     if (name === 'map') MapView.invalidate();
     if (name === 'operators') Operators.show();
     if (name === 'stats') Stats.show();
+    if (name === 'qoe') QoeView.show();
     if (name === 'history') History.show();
     if (name === 'forecast') Forecast.show();
     if (name === 'ai') AIView.show();
@@ -93,9 +94,11 @@ const App = (() => {
       // on les réinitialise pour qu'elles les relisent au prochain affichage.
       Operators.reset();
       Stats.reset();
+      QoeView.reload();
       History.reload();
       if (currentView === 'operators') Operators.show();
       if (currentView === 'stats') Stats.show();
+      if (currentView === 'qoe') QoeView.show();
       if (!silent) toast('Données actualisées.');
     } catch (e) {
       if (!silent) toast('Actualisation impossible : ' + e.message);

@@ -68,6 +68,23 @@ const API = (() => {
     // Points géolocalisés : [{ lat, lng, operator, networkType, download, upload, ping, location, timestamp }]
     mapPoints: () => get('/api/dashboard/map'),
 
+    // Couche « Qualité perçue » : uniquement les tests évalués, avec le détail
+    // des réponses (satisfaction, note, coupures vidéo…).
+    qoeMap: () => get('/api/dashboard/map?usage=qoe'),
+
+    // Agrégats « Qualité perçue » : satisfaction, profil, améliorations.
+    // { reseau, operator, tech, period } — period = hour|day|week|month|year|all.
+    qoe: ({ reseau = '', operator = '', tech = '', period = '', from = '', to = '' } = {}) => {
+      const params = new URLSearchParams();
+      if (reseau) params.set('reseau', reseau);
+      if (operator) params.set('operator', operator);
+      if (tech) params.set('tech', tech);
+      if (period) params.set('period', period);
+      if (from) params.set('from', from);
+      if (to) params.set('to', to);
+      return get(`/api/dashboard/qoe?${params}`, { useCache: false });
+    },
+
     // Heatmap : [{ lat, lng, intensity, download }]
     heatmap: () => get('/api/dashboard/heatmap'),
 

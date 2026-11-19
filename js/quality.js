@@ -213,6 +213,41 @@ function qualityColor(level) {
   return QUALITY_COLORS[level] || QUALITY_COLORS[0];
 }
 
+// ─── Qualité perçue (questionnaire QoE) ─────────────────────────────────────
+// Cinq niveaux de satisfaction déclarée, indépendants des quatre niveaux de
+// qualité mesurée. Palette validée sur le croquis : du vert foncé (très bonne)
+// au rouge sombre (très mauvaise). Les libellés « legend » sont ceux de la
+// carte ; les libellés « label » ceux du questionnaire.
+const QOE_SATISFACTION = {
+  very_satisfied:   { level: 5, label: 'Très satisfait',   legend: 'Très bonne',    color: '#0e7a4a' },
+  satisfied:        { level: 4, label: 'Satisfait',        legend: 'Bonne',         color: '#7ac143' },
+  neutral:          { level: 3, label: 'Neutre',           legend: 'Moyenne',       color: '#f5a623' },
+  unsatisfied:      { level: 2, label: 'Insatisfait',      legend: 'Mauvaise',      color: '#e0492f' },
+  very_unsatisfied: { level: 1, label: 'Très insatisfait', legend: 'Très mauvaise', color: '#8f1d12' },
+};
+
+// Ordre d'affichage, du meilleur au moins bon.
+const QOE_SATISFACTION_ORDER = ['very_satisfied', 'satisfied', 'neutral', 'unsatisfied', 'very_unsatisfied'];
+
+function qoeColor(code) {
+  return (QOE_SATISFACTION[code] || {}).color || getCss('--q0') || '#9aa1b1';
+}
+
+function qoeLegendLabel(code) {
+  return (QOE_SATISFACTION[code] || {}).legend || 'Non renseignée';
+}
+
+function qoeSatisfactionLabel(code) {
+  return (QOE_SATISFACTION[code] || {}).label || 'Non renseignée';
+}
+
+// Le backend renvoie aussi les codes historiques (qoe_sat) : on les accepte
+// tels quels. Retourne null quand la réponse ne dit rien.
+function qoeSatisfactionOf(p) {
+  const code = p && (p.qoeSatisfaction || p.qoeSat);
+  return QOE_SATISFACTION[code] ? code : null;
+}
+
 function qualityLabel(level, usageKey) {
   const usage = USAGES[usageKey || 'debit'];
   if (!usage || !usage.levels) return 'Indisponible';
