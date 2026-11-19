@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="assets/vendor/leaflet.css"/>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=16">
+  <link rel="stylesheet" href="css/style.css?v=18">
   <script>
     // Thème appliqué AVANT le premier rendu : évite le flash de mauvaise
     // couleur au chargement. Priorité : choix mémorisé → préférence système.
@@ -38,6 +38,7 @@
     <button class="topnav-item active" data-view="map">Carte</button>
     <button class="topnav-item" data-view="operators">Comparatif</button>
     <button class="topnav-item" data-view="stats">Statistiques</button>
+    <button class="topnav-item" data-view="qoe">Qualité perçue</button>
     <button class="topnav-item" data-view="history">Historique des tests</button>
     <button class="topnav-item" data-view="forecast">Prévision</button>
     <button class="topnav-item" data-view="ai">Analyse IA</button>
@@ -98,6 +99,7 @@
         <button class="toggle" data-mt="ping">Latence</button>
         <button class="toggle" data-mt="streaming">Streaming</button>
         <button class="toggle" data-mt="browsing">Navigation</button>
+        <button class="toggle" data-mt="qoe">Qualité perçue</button>
       </div>
       <!-- Couverture SÉPARÉE des cartes de qualité (demande) : elle répond
            « où capte-t-on quoi ? », pas « c'est bien ou pas ? » (§4 doc). -->
@@ -364,6 +366,170 @@
   </div>
 </section>
 
+<!-- ─── Vue Qualité perçue ──────────────────────────────────────────────────── -->
+<section class="view view-qoe" id="view-qoe">
+  <div class="page-head">
+    <h1>Qualité perçue</h1>
+    <p>Ce que les utilisateurs déclarent après leur test Yélé : satisfaction,
+       ressenti sur la vitesse, coupures vidéo, profil et attentes. Les
+       commentaires libres restent privés — seuls les agrégats sont publiés.</p>
+  </div>
+
+  <div class="card">
+    <div class="op-filters">
+      <div class="op-filter-block" style="flex:none">
+        <div class="op-filter-label">Réseau</div>
+        <div class="toggle-group" id="qoe-net-type">
+          <button class="toggle active" data-net="mobile">Mobile</button>
+          <button class="toggle" data-net="fixe">Fixe</button>
+        </div>
+      </div>
+      <div class="op-filter-block">
+        <div class="op-filter-label">Opérateur</div>
+        <select class="period-select" id="qoe-operator">
+          <option value="">Tous les opérateurs</option>
+        </select>
+      </div>
+      <div class="op-filter-block" id="qoe-tech-zone">
+        <div class="op-filter-label">Technologie</div>
+        <select class="period-select" id="qoe-tech">
+          <option value="">Toutes</option>
+          <option value="2G">2G</option>
+          <option value="3G">3G</option>
+          <option value="4G">4G</option>
+          <option value="5G">5G</option>
+        </select>
+      </div>
+      <div class="op-filter-block">
+        <div class="op-filter-label">Période</div>
+        <div class="toggle-group op-period-grain" id="qoe-period">
+          <button class="toggle active" data-period="all">Tout</button>
+          <button class="toggle" data-period="hour">Heure</button>
+          <button class="toggle" data-period="day">Jours</button>
+          <button class="toggle" data-period="week">Semaines</button>
+          <button class="toggle" data-period="month">Mois</button>
+          <button class="toggle" data-period="year">Années</button>
+        </div>
+      </div>
+      <div class="op-filter-block" style="flex:none">
+        <div class="op-filter-label">&nbsp;</div>
+        <div class="qoe-actions">
+          <button class="btn-primary" id="qoe-apply" type="button">Filtrer</button>
+          <button class="btn-ghost" id="qoe-reset" type="button">Réinitialiser</button>
+        </div>
+      </div>
+    </div>
+    <div class="qoe-status" id="qoe-status">Chargement des réponses…</div>
+  </div>
+
+  <div class="kpi-grid" id="qoe-kpis">
+    <div class="kpi-card"><div class="kpi-top"><span class="kpi-value" id="qoe-kpi-responses">·</span></div><div class="kpi-label">Réponses à l'évaluation</div></div>
+    <div class="kpi-card"><div class="kpi-top"><span class="kpi-value" id="qoe-kpi-rate">·</span></div><div class="kpi-label">Tests évalués</div></div>
+    <div class="kpi-card"><div class="kpi-top"><span class="kpi-value" id="qoe-kpi-rating">·</span></div><div class="kpi-label">Note vitesse moyenne</div></div>
+    <div class="kpi-card"><div class="kpi-top"><span class="kpi-value" id="qoe-kpi-satisfied">·</span></div><div class="kpi-label">Satisfaits ou très satisfaits</div></div>
+    <div class="kpi-card"><div class="kpi-top"><span class="kpi-value" id="qoe-kpi-cuts">·</span></div><div class="kpi-label">Déclarent des coupures vidéo</div></div>
+  </div>
+
+  <div class="card qoe-empty" id="qoe-empty" hidden>
+    <b>Pas encore assez de réponses</b>
+    <p id="qoe-empty-text">Le seuil de publication est de 10 réponses.</p>
+  </div>
+
+  <div class="charts-grid" id="qoe-body">
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h2>Ressenti vs mesure</h2>
+          <p class="card-sub">Satisfaction déclarée (sur 5) et débit médian mesuré (Mb/s), par opérateur.</p>
+        </div>
+      </div>
+      <div class="qoe-bars" id="qoe-bars"></div>
+      <div class="qoe-legend">
+        <span><i class="qoe-swatch" style="background:var(--green)"></i>Satisfaction moyenne /5</span>
+        <span><i class="qoe-swatch" style="background:#16557e"></i>Débit médian mesuré (Mb/s)</span>
+      </div>
+      <p class="qoe-note">Les deux barres sont mises à la même échelle pour lire l'écart : ici la perception suit la mesure.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h2>Note vitesse × débit mesuré</h2>
+          <p class="card-sub" id="qoe-scatter-sub">Chaque point = une réponse avec sa mesure.</p>
+        </div>
+      </div>
+      <div class="chart-wrap"><canvas id="qoe-scatter"></canvas></div>
+      <p class="qoe-note">Tendance positive : plus le débit mesuré est élevé, plus la note déclarée est bonne — les points hors tendance signalent des attentes différentes.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h2>Satisfaction globale du réseau</h2>
+          <p class="card-sub" id="qoe-sat-sub">« Globalement, comment évaluez-vous la qualité du réseau de votre opérateur ? »</p>
+        </div>
+      </div>
+      <div class="qoe-stack" id="qoe-sat-stack"></div>
+      <div class="qoe-legend" id="qoe-sat-legend"></div>
+      <p class="qoe-note">Seuil d'affichage : un groupe n'apparaît qu'à partir de 10 réponses.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h2>Profil des répondants</h2>
+          <p class="card-sub">Déclaratif, non représentatif de la population — à lire comme un contexte.</p>
+        </div>
+      </div>
+      <div id="qoe-profile"></div>
+    </div>
+
+    <div class="card wide">
+      <div class="card-head">
+        <div>
+          <h2>Qualité perçue par opérateur</h2>
+          <p class="card-sub">Réponses déclarées croisées avec les mesures du même opérateur ; groupes &lt; 10 réponses masqués.</p>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table" id="qoe-op-table">
+          <thead><tr>
+            <th>Opérateur</th>
+            <th class="num">Réponses</th>
+            <th class="num" title="Satisfaction globale déclarée, sur 5.">Satisfaction moy.</th>
+            <th class="num" title="Part des réponses « insatisfait » ou « très insatisfait ».">Insatisfaits</th>
+            <th class="num" title="Note de vitesse déclarée, sur 5.">Note vitesse</th>
+            <th class="num" title="Part des réponses « souvent » ou « fréquemment » en difficulté sur les pages web.">Pages web « souvent/fréquemment »</th>
+            <th class="num" title="Part des réponses déclarant des coupures vidéo souvent ou fréquemment.">Coupures vidéo</th>
+            <th class="num" title="Débit de réception médian mesuré sur les tests évalués.">Débit médian mesuré</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card wide">
+      <div class="card-head">
+        <div>
+          <h2>Améliorations prioritaires</h2>
+          <p class="card-sub">« Quelle est l'amélioration la plus urgente ? » — plusieurs réponses possibles, % des répondants du réseau concerné.</p>
+        </div>
+      </div>
+      <div class="qoe-improvements">
+        <div>
+          <div class="qoe-col-title">Réseau mobile <small id="qoe-improve-mobile-n"></small></div>
+          <div id="qoe-improve-mobile"></div>
+        </div>
+        <div>
+          <div class="qoe-col-title">Réseau fixe / Wi-Fi <small id="qoe-improve-fixe-n"></small></div>
+          <div id="qoe-improve-fixe"></div>
+          <p class="qoe-note">Les commentaires libres ne sont pas affichés sur le dashboard public (risque de données personnelles) ; ils restent en base pour l'analyse interne.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
 <!-- ─── Vue Historique ──────────────────────────────────────────────────────── -->
 <section class="view view-history" id="view-history">
   <div class="page-head">
@@ -597,18 +763,20 @@
 <script src="assets/vendor/leaflet.js"></script>
 <script src="assets/vendor/chart.umd.min.js"></script>
 <script src="config.js"></script>
-<script src="js/quality.js?v=8"></script>
+<script src="js/quality.js?v=9"></script>
 <script src="js/api.js"></script>
 <script src="js/burkina.js"></script>
 <!-- ?v= : invalide le cache navigateur à chaque montée de version (Live Server
      n'envoie aucun en-tête no-cache, et un ancien js/app.js en cache avait
      privé le bouton thème de son handler). Monter v à chaque modif de JS. -->
-<script src="js/map.js?v=24"></script>
+<script src="js/map.js?v=26"></script>
 <script src="js/operators.js?v=7"></script>
 <script src="js/stats.js?v=8"></script>
+<script src="js/qoe.js?v=1"></script>
 <script src="js/history.js?v=7"></script>
 <script src="js/forecast.js?v=2"></script>
 <script src="js/ai.js?v=9"></script>
-<script src="js/app.js?v=2"></script>
+<script src="js/app.js?v=3"></script>
 </body>
 </html>
+
